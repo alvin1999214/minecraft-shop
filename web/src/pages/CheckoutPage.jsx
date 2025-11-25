@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getCart, checkout, uploadPaymentProof, getPayPalConfig, createPayPalOrder, capturePayPalOrder } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 
@@ -12,6 +12,7 @@ export default function CheckoutPage(){
   const [paymentMethod, setPaymentMethod] = useState('manual'); // 'manual' or 'paypal'
   const [paypalClientId, setPaypalClientId] = useState(null);
   const [paypalLoaded, setPaypalLoaded] = useState(false);
+  const discordIdRef = useRef('');
   const navigate=useNavigate();
   
   useEffect(()=>{(async()=>{
@@ -84,9 +85,17 @@ export default function CheckoutPage(){
   
   // PayPal button rendering
   useEffect(() => {
+    // Update ref when form changes
+    discordIdRef.current = form.discordId;
+  }, [form.discordId]);
+
+  useEffect(() => {
     if (paymentMethod === 'paypal' && paypalLoaded && window.paypal) {
       const container = document.getElementById('paypal-button-container');
-      if (container && container.childNodes.length === 0) {
+      if (container) {
+        // Clear existing buttons
+        container.innerHTML = '';
+        
         window.paypal.Buttons({
           createOrder: async () => {
             try {
@@ -95,15 +104,16 @@ export default function CheckoutPage(){
             } catch (error) {
               console.error('Error creating PayPal order:', error);
               alert('創建PayPal訂單失敗');
+              throw error;
             }
           },
           onApprove: async (data) => {
             try {
               setIsSubmitting(true);
-              const response = await capturePayPalOrder(data.orderID, form.discordId);
-              const orderId = response.data.orders?.[0]?.id || response.data.id;
+              const response = await capturePayPalOrder(data.orderID, discordIdRef.current);
+              const orderId = response.data.orderGroupId || response.data.orders?.[0]?.id || response.data.id;
               alert('PayPal付款成功！訂單已自動批准');
-              navigate(`/orders/${orderId}`);
+              navigate(`/orders`);
             } catch (error) {
               console.error('Error capturing PayPal payment:', error);
               alert('PayPal付款處理失敗');
@@ -117,7 +127,7 @@ export default function CheckoutPage(){
         }).render('#paypal-button-container');
       }
     }
-  }, [paymentMethod, paypalLoaded, form.discordId]);
+  }, [paymentMethod, paypalLoaded, navigate]);
   if(loading) return <div style={{textAlign:'center',padding:120}}><div className="loading-spinner"></div></div>
   return (
     <section className="section">

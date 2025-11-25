@@ -125,24 +125,28 @@ app.post('/paypal/capture-order', playerAuth, async (req, res) => {
       for (const it of cart) {
         const product = (await pool.query('SELECT command, price FROM products WHERE id=$1', [it.product_id])).rows[0];
         
-        // Create order with PayPal payment method
-        const r = await pool.query(
-          'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, status, payment_method, paypal_order_id, created_at, approved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),now()) RETURNING *',
-          [orderGroupId, uid, playerid, discordId || null, it.product_id, 'approved', 'paypal', orderID]
-        );
-        
-        const order = r.rows[0];
-        created.push(order);
-        
-        // Execute RCON command automatically
-        if (product && product.command) {
-          const cmd = product.command.replace(/\{playerid\}/g, playerid);
-          try {
-            const resp = await runRconCommand(cmd);
-            await pool.query('UPDATE orders SET rcon_result=$1 WHERE id=$2', [resp ? String(resp) : null, order.id]);
-          } catch (e) {
-            console.error('RCON execution error for order', order.id, e);
-            // Continue even if RCON fails
+        // Create one order record for each quantity
+        const quantity = parseInt(it.quantity) || 1;
+        for (let i = 0; i < quantity; i++) {
+          // Create order with PayPal payment method
+          const r = await pool.query(
+            'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, status, payment_method, paypal_order_id, created_at, approved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),now()) RETURNING *',
+            [orderGroupId, uid, playerid, discordId || null, it.product_id, 'approved', 'paypal', orderID]
+          );
+          
+          const order = r.rows[0];
+          created.push(order);
+          
+          // Execute RCON command automatically
+          if (product && product.command) {
+            const cmd = product.command.replace(/\{playerid\}/g, playerid);
+            try {
+              const resp = await runRconCommand(cmd);
+              await pool.query('UPDATE orders SET rcon_result=$1 WHERE id=$2', [resp ? String(resp) : null, order.id]);
+            } catch (e) {
+              console.error('RCON execution error for order', order.id, e);
+              // Continue even if RCON fails
+            }
           }
         }
       }
@@ -354,11 +358,15 @@ app.post('/orders/checkout', playerAuth, async (req, res) => {
   const created = [];
   try {
     for (const it of cart) {
-      const r = await pool.query(
-        'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, proof_path, status, payment_method, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING *',
-        [orderGroupId, uid, playerid, discordId || null, it.product_id, proof || null, 'pending', paymentMethod || 'manual']
-      );
-      created.push(r.rows[0]);
+      // Create one order record for each quantity
+      const quantity = parseInt(it.quantity) || 1;
+      for (let i = 0; i < quantity; i++) {
+        const r = await pool.query(
+          'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, proof_path, status, payment_method, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING *',
+          [orderGroupId, uid, playerid, discordId || null, it.product_id, proof || null, 'pending', paymentMethod || 'manual']
+        );
+        created.push(r.rows[0]);
+      }
     }
     // clear cart for user
     await pool.query('DELETE FROM cart_items WHERE user_id=$1', [uid]);
