@@ -1,0 +1,66 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mcshop
+      POSTGRES_USER: mcshop
+      POSTGRES_PASSWORD: your_secure_db_password_here  # 請修改為您的安全密碼
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      PORT: 18081
+      PGHOST: db
+      PGUSER: mcshop
+      PGPASSWORD: your_secure_db_password_here  # 請與上面的 POSTGRES_PASSWORD 保持一致
+      PGDATABASE: mcshop
+      PGPORT: 5432
+      ADMIN_PASSWORD: your_admin_password_here  # 請修改為您的管理員密碼
+      RCON_HOST: mc-spigot
+      RCON_PORT: 25575
+      RCON_PASSWORD: your_rcon_password_here  # 請修改為您的 RCON 密碼
+    depends_on:
+      - db
+    volumes:
+      - ./api/uploads:/usr/src/app/uploads
+    ports:
+      - "18081:18081"
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    ports:
+      - "8880:8880"
+    depends_on:
+      - api
+    environment:
+      - NODE_ENV=production
+
+  mc-spigot:
+    image: itzg/minecraft-server
+    container_name: mc-spigot
+    ports:
+      - "25575:25575"
+      - "25565:25565"
+      - "8123:8123"
+    environment:
+      EULA: "TRUE"
+      TYPE: "PAPER"
+      VERSION: "1.21.10"
+      MEMORY: "12G"
+      MOTD: "§b§l24-7 §r§aMinecraft §eServer"
+      SEED: ""
+      ENABLE_RCON: "true"
+      RCON_PORT: 25575
+      RCON_PASSWORD: your_rcon_password_here  # 請與上面的 RCON_PASSWORD 保持一致
+    volumes:
+      - "./data:/data"
+    restart: unless-stopped
+
+volumes:
+  db_data:

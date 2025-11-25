@@ -1,0 +1,6 @@
+{
+  "mode": "sandbox",
+  "client_id": "YOUR_PAYPAL_CLIENT_ID",
+  "client_secret": "YOUR_PAYPAL_CLIENT_SECRET",
+  "_comment": "mode can be 'sandbox' for testing or 'live' for production"
+}

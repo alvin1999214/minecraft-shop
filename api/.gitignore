@@ -1,0 +1,5 @@
+node_modules/
+uploads/
+paypal-config.json
+*.log
+.env
