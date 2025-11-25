@@ -499,7 +499,7 @@ h3{
 
 .hero-image{
 	width:100%;
-	max-width:1200px;
+	max-width:980px;
 	margin:40px auto 0;
 	border-radius:var(--radius-lg);
 	overflow:hidden;
@@ -509,6 +509,8 @@ h3{
 	width:100%;
 	height:auto;
 	display:block;
+	max-height:450px;
+	object-fit:contain;
 }
 
 @media (max-width: 768px) {
