@@ -9,6 +9,12 @@ export default function OrderHistoryPage(){
   const [error,setError]=useState('');
   const navigate=useNavigate();
   useEffect(()=>{(async()=>{
+    const isAdmin = localStorage.getItem('admin_token');
+    if(isAdmin) {
+      alert('管理員模式下無法查看玩家訂單，請先登出管理員');
+      navigate('/admin');
+      return;
+    }
     const token = localStorage.getItem('token');
     const playerid = localStorage.getItem('playerid');
     console.log('OrderHistoryPage - checking auth:', { hasToken: !!token, hasPlayerid: !!playerid });

@@ -8,6 +8,7 @@ export default function RegisterPage(){
   const [confirm,setConfirm]=useState('');
   const [loading,setLoading]=useState(false);
   const navigate=useNavigate();
+  const isAdmin = typeof window !== 'undefined' && localStorage.getItem('admin_token');
   const handleSubmit=async(e)=>{
     e.preventDefault();
     if(password!==confirm){
@@ -24,6 +25,41 @@ export default function RegisterPage(){
     }finally{
       setLoading(false);
     }
+  }
+  
+  if(isAdmin) {
+    return (
+      <section className="section">
+        <div className="container-narrow" style={{maxWidth:450}}>
+          <div style={{
+            textAlign:'center',
+            padding:60,
+            background:'#fff3cd',
+            borderRadius:12,
+            border:'2px solid #ffc107'
+          }}>
+            <div style={{fontSize:64,marginBottom:20}}>⚠️</div>
+            <h2 style={{marginBottom:16,color:'#856404'}}>無法註冊</h2>
+            <p style={{fontSize:16,color:'#856404',marginBottom:24}}>
+              您現在是管理員模式，無法註冊玩家帳號
+            </p>
+            <p style={{fontSize:14,color:'#856404',marginBottom:24}}>
+              請先登出管理員帳戶
+            </p>
+            <button 
+              className="btn" 
+              onClick={() => {
+                localStorage.removeItem('admin_token');
+                window.location.href = '/register';
+              }}
+              style={{background:'#ffc107',color:'#000'}}
+            >
+              登出管理員
+            </button>
+          </div>
+        </div>
+      </section>
+    )
   }
   
   return (

@@ -7,6 +7,12 @@ export default function CartPage(){
   const [loading,setLoading]=useState(true);
   const navigate=useNavigate();
   useEffect(()=>{(async()=>{
+    const isAdmin = localStorage.getItem('admin_token');
+    if(isAdmin) {
+      alert('管理員模式下無法使用購物車，請先登出管理員');
+      navigate('/admin');
+      return;
+    }
     const token = localStorage.getItem('token');
     const playerid = localStorage.getItem('playerid');
     if(!token || !playerid){

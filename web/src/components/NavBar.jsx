@@ -4,11 +4,18 @@ import { Link } from 'react-router-dom'
 export default function NavBar({cartCount = 0}){
   const isAdmin = typeof window !== 'undefined' && localStorage.getItem('admin_token');
   const playerid = typeof window !== 'undefined' ? localStorage.getItem('playerid') : null;
+  
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('playerid');
     window.location.href = '/';
   };
+  
+  const handleAdminLogout = () => {
+    localStorage.removeItem('admin_token');
+    window.location.href = '/';
+  };
+  
   return (
     <nav className="nav">
       <div className="brand">
@@ -22,7 +29,19 @@ export default function NavBar({cartCount = 0}){
         <Link to="/cart" className="nav-link">
           購物車{cartCount > 0 && ` (${cartCount})`}
         </Link>
-        {playerid ? (
+        {isAdmin ? (
+          <>
+            <Link to="/admin" className="nav-link">管理</Link>
+            <span className="nav-link" style={{opacity:0.6}}>👤 管理員</span>
+            <button 
+              className="btn ghost" 
+              style={{padding:'6px 14px',fontSize:12}} 
+              onClick={handleAdminLogout}
+            >
+              登出
+            </button>
+          </>
+        ) : playerid ? (
           <>
             <span className="nav-link" style={{opacity:0.6}}>{playerid}</span>
             <Link to="/change-password" className="nav-link" style={{fontSize:12}}>
@@ -42,7 +61,6 @@ export default function NavBar({cartCount = 0}){
             <Link to="/register" className="btn" style={{padding:'6px 14px',fontSize:12}}>註冊</Link>
           </>
         )}
-        {isAdmin && <Link to="/admin" className="nav-link">管理</Link>}
       </div>
     </nav>
   )
