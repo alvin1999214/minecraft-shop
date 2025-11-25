@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS products (
 
 CREATE TABLE IF NOT EXISTS orders (
   id SERIAL PRIMARY KEY,
+  order_group_id TEXT,
   user_id INTEGER REFERENCES users(id),
   playerid TEXT NOT NULL,
   discord_id TEXT,
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS orders (
 
 -- index for fast lookup of orders by user
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_group_id ON orders(order_group_id);
 
 CREATE TABLE IF NOT EXISTS cart_items (
   id SERIAL PRIMARY KEY,

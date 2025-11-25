@@ -8,6 +8,7 @@ const Rcon = require('rcon-client').Rcon;
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const paypal = require('@paypal/checkout-server-sdk');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 18081;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
@@ -115,6 +116,9 @@ app.post('/paypal/capture-order', playerAuth, async (req, res) => {
     const cart = (await pool.query('SELECT * FROM cart_items WHERE user_id=$1', [uid])).rows;
     if (!cart || cart.length === 0) return res.status(400).json({ error: 'Empty cart' });
     
+    // Generate unique order group ID for this checkout session
+    const orderGroupId = crypto.randomUUID();
+    
     const created = [];
     try {
       // Create orders and auto-approve since PayPal payment is confirmed
@@ -123,8 +127,8 @@ app.post('/paypal/capture-order', playerAuth, async (req, res) => {
         
         // Create order with PayPal payment method
         const r = await pool.query(
-          'INSERT INTO orders(user_id, playerid, discord_id, product_id, status, payment_method, paypal_order_id, created_at, approved_at) VALUES($1,$2,$3,$4,$5,$6,$7,now(),now()) RETURNING *',
-          [uid, playerid, discordId || null, it.product_id, 'approved', 'paypal', orderID]
+          'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, status, payment_method, paypal_order_id, created_at, approved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),now()) RETURNING *',
+          [orderGroupId, uid, playerid, discordId || null, it.product_id, 'approved', 'paypal', orderID]
         );
         
         const order = r.rows[0];
@@ -146,7 +150,7 @@ app.post('/paypal/capture-order', playerAuth, async (req, res) => {
       // Clear cart
       await pool.query('DELETE FROM cart_items WHERE user_id=$1', [uid]);
       
-      res.json({ success: true, orders: created, id: created[0] ? created[0].id : null });
+      res.json({ success: true, orders: created, id: created[0] ? created[0].id : null, orderGroupId });
     } catch (e) {
       console.error('Order creation failed', e);
       res.status(500).json({ error: 'Order creation failed' });
@@ -344,34 +348,38 @@ app.post('/orders/checkout', playerAuth, async (req, res) => {
     return res.status(400).json({ error: 'Use PayPal capture endpoint for PayPal payments' });
   }
   
+  // Generate unique order group ID for this checkout session
+  const orderGroupId = crypto.randomUUID();
+  
   const created = [];
   try {
     for (const it of cart) {
       const r = await pool.query(
-        'INSERT INTO orders(user_id, playerid, discord_id, product_id, proof_path, status, payment_method, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()) RETURNING *',
-        [uid, playerid, discordId || null, it.product_id, proof || null, 'pending', paymentMethod || 'manual']
+        'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, proof_path, status, payment_method, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING *',
+        [orderGroupId, uid, playerid, discordId || null, it.product_id, proof || null, 'pending', paymentMethod || 'manual']
       );
       created.push(r.rows[0]);
     }
     // clear cart for user
     await pool.query('DELETE FROM cart_items WHERE user_id=$1', [uid]);
-    res.json({ success: true, orders: created, id: created[0] ? created[0].id : null });
+    res.json({ success: true, orders: created, id: created[0] ? created[0].id : null, orderGroupId });
   } catch (e) {
     console.error('Checkout failed', e && e.stack ? e.stack : e);
     res.status(500).json({ error: 'Checkout failed' });
   }
 });
 
-// Player upload payment proof for an order they own
-app.post('/orders/:id/upload_proof', playerAuth, upload.single('file'), async (req, res) => {
-  const id = req.params.id;
+// Player upload payment proof for an order group they own
+app.post('/orders/:groupId/upload_proof', playerAuth, upload.single('file'), async (req, res) => {
+  const groupId = req.params.groupId;
   const uid = req.user.uid;
   if (!req.file) return res.status(400).json({ error: 'No file' });
   const url = `/uploads/${path.basename(req.file.path)}`;
-  // ensure order belongs to user
-  const ord = (await pool.query('SELECT * FROM orders WHERE id=$1 AND user_id=$2', [id, uid])).rows[0];
+  // ensure order group belongs to user
+  const ord = (await pool.query('SELECT * FROM orders WHERE order_group_id=$1 AND user_id=$2 LIMIT 1', [groupId, uid])).rows[0];
   if (!ord) return res.status(404).json({ error: 'Order not found' });
-  await pool.query('UPDATE orders SET proof_path=$1 WHERE id=$2', [url, id]);
+  // Update all orders in the group
+  await pool.query('UPDATE orders SET proof_path=$1 WHERE order_group_id=$2', [url, groupId]);
   res.json({ url });
 });
 
@@ -424,49 +432,98 @@ app.get('/orders/:id', playerAuth, async (req, res) => {
 
 // Admin: list all orders
 app.get('/admin/orders', adminAuth, async (req, res) => {
-  const result = await pool.query("SELECT o.*, p.name AS product_name, p.command, o.proof_path, o.playerid, p.price FROM orders o LEFT JOIN products p ON p.id = o.product_id ORDER BY o.id DESC");
+  // Get unique order groups with summary info
+  const result = await pool.query(`
+    SELECT 
+      o.order_group_id,
+      MAX(o.playerid) as playerid,
+      MAX(o.discord_id) as discord_id,
+      MAX(o.proof_path) as proof_path,
+      MAX(o.payment_method) as payment_method,
+      MAX(o.paypal_order_id) as paypal_order_id,
+      MIN(o.created_at) as created_at,
+      SUM(p.price) as total_amount,
+      COUNT(o.id) as item_count,
+      STRING_AGG(DISTINCT o.status, ',') as statuses
+    FROM orders o 
+    LEFT JOIN products p ON p.id = o.product_id 
+    WHERE o.order_group_id IS NOT NULL
+    GROUP BY o.order_group_id
+    ORDER BY MIN(o.created_at) DESC
+  `);
+  
   const rows = result.rows.map(o => ({
-    id: o.id,
-    userId: o.user_id,
+    orderGroupId: o.order_group_id,
     playerid: o.playerid,
     discordId: o.discord_id,
-    productId: o.product_id,
-    productName: o.product_name,
     proofUrl: o.proof_path,
-    status: o.status,
+    paymentMethod: o.payment_method,
+    paypalOrderId: o.paypal_order_id,
     createdAt: o.created_at,
-    approvedAt: o.approved_at,
-    rconResult: o.rcon_result,
-    command: o.command,
-    totalAmount: o.price
+    totalAmount: parseFloat(o.total_amount || 0),
+    itemCount: parseInt(o.item_count || 0),
+    statuses: o.statuses
   }));
   res.json(rows);
 });
 
-// Admin: get order detail
-app.get('/admin/orders/:id', adminAuth, async (req, res) => {
-  const id = req.params.id;
-  const result = await pool.query("SELECT o.*, p.name AS product_name, p.price, p.command FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.id=$1", [id]);
-  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-  const o = result.rows[0];
+// Admin: get order group detail
+app.get('/admin/orders/:groupId', adminAuth, async (req, res) => {
+  const groupId = req.params.groupId;
+  
+  // Get order group summary
+  const summaryResult = await pool.query(`
+    SELECT 
+      o.order_group_id,
+      MAX(o.playerid) as playerid,
+      MAX(o.discord_id) as discord_id,
+      MAX(o.proof_path) as proof_path,
+      MAX(o.payment_method) as payment_method,
+      MAX(o.paypal_order_id) as paypal_order_id,
+      MIN(o.created_at) as created_at,
+      SUM(p.price) as total_amount
+    FROM orders o 
+    LEFT JOIN products p ON p.id = o.product_id 
+    WHERE o.order_group_id = $1
+    GROUP BY o.order_group_id
+  `, [groupId]);
+  
+  if (summaryResult.rows.length === 0) return res.status(404).json({ error: 'Order group not found' });
+  
+  // Get all items in this order group
+  const itemsResult = await pool.query(`
+    SELECT o.*, p.name AS product_name, p.price, p.command, p.image 
+    FROM orders o 
+    LEFT JOIN products p ON p.id = o.product_id 
+    WHERE o.order_group_id = $1
+    ORDER BY o.id
+  `, [groupId]);
+  
+  const summary = summaryResult.rows[0];
   res.json({
-    id: o.id,
-    userId: o.user_id,
-    playerid: o.playerid,
-    discordId: o.discord_id,
-    productId: o.product_id,
-    productName: o.product_name,
-    proofUrl: o.proof_path,
-    status: o.status,
-    createdAt: o.created_at,
-    approvedAt: o.approved_at,
-    rconResult: o.rcon_result,
-    command: o.command,
-    totalAmount: o.price
+    orderGroupId: summary.order_group_id,
+    playerid: summary.playerid,
+    discordId: summary.discord_id,
+    proofUrl: summary.proof_path,
+    paymentMethod: summary.payment_method,
+    paypalOrderId: summary.paypal_order_id,
+    createdAt: summary.created_at,
+    totalAmount: parseFloat(summary.total_amount || 0),
+    items: itemsResult.rows.map(o => ({
+      id: o.id,
+      productId: o.product_id,
+      productName: o.product_name,
+      productPrice: parseFloat(o.price || 0),
+      productImage: o.image,
+      command: o.command,
+      status: o.status,
+      approvedAt: o.approved_at,
+      rconResult: o.rcon_result
+    }))
   });
 });
 
-// Cart endpoints
+// Upload proof for an order group// Cart endpoints
 // Cart endpoints scoped to authenticated player
 app.get('/cart', playerAuth, async (req, res) => {
   const uid = req.user.uid;
