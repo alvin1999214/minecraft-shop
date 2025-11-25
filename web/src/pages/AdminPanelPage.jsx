@@ -578,7 +578,7 @@ export default function AdminPanelPage() {
                         color: '#667eea',
                         marginBottom: 8,
                       }}>
-                        ${p.price}
+                        NT${Math.round(p.price)}
                       </div>
                       {p.description && (
                         <p style={{
@@ -1042,7 +1042,7 @@ export default function AdminPanelPage() {
                             )}
                             <div>
                               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>總金額</div>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: '#667eea' }}>${o.totalAmount}</div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: '#667eea' }}>NT${Math.round(o.totalAmount)}</div>
                             </div>
                             <div>
                               <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>商品數量</div>
@@ -1184,7 +1184,7 @@ export default function AdminPanelPage() {
                 )}
                 <div>
                   <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>總金額</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: '#667eea' }}>${selectedOrder.totalAmount}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: '#667eea' }}>NT${Math.round(selectedOrder.totalAmount)}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>購買時間</div>
@@ -1258,7 +1258,7 @@ export default function AdminPanelPage() {
                         {item.productName}
                       </h4>
                       <div style={{ fontSize: 20, fontWeight: 700, color: '#667eea', marginBottom: 8 }}>
-                        ${item.productPrice}
+                        NT${Math.round(item.productPrice)}
                       </div>
                       {item.rconResult && (
                         <div style={{

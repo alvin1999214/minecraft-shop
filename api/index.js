@@ -75,8 +75,8 @@ app.post('/paypal/create-order', playerAuth, async (req, res) => {
     intent: 'CAPTURE',
     purchase_units: [{
       amount: {
-        currency_code: 'USD',
-        value: total.toFixed(2)
+        currency_code: 'TWD',
+        value: Math.round(total).toString()
       }
     }]
   });

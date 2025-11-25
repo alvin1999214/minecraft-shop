@@ -58,7 +58,7 @@ export default function ProductPage(){
             <h1>{product.name}</h1>
             <p className="headline" style={{marginTop:16}}>{product.description || '精選商品'}</p>
             <div style={{fontSize:32,fontWeight:600,marginTop:24,color:'var(--text-primary)'}}>
-              ${product.price}
+              NT${Math.round(product.price)}
             </div>
           </div>
 

@@ -73,7 +73,7 @@ export default function OrderDetailPage(){
           </div>
           <div>
             <div className="muted">總額</div>
-            <div style={{fontWeight:700}}>${order.totalAmount || 0}</div>
+            <div style={{fontWeight:700}}>NT${Math.round(order.totalAmount || 0)}</div>
           </div>
         </div>
 

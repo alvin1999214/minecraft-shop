@@ -85,7 +85,7 @@ export default function CartPage(){
                   <div style={{flex:1,minWidth:200}}>
                     <h3 style={{margin:'0 0 8px 0',fontSize:21}}>{it.product.name}</h3>
                     <div style={{fontSize:17,color:'var(--text-secondary)',marginBottom:12}}>
-                      ${it.product.price}
+                      NT${Math.round(it.product.price)}
                     </div>
                     <div style={{display:'flex',alignItems:'center',gap:12}}>
                       <input 
@@ -108,7 +108,7 @@ export default function CartPage(){
                   <div style={{textAlign:'right'}}>
                     <div style={{fontSize:12,color:'var(--text-secondary)',marginBottom:4}}>小計</div>
                     <div style={{fontSize:24,fontWeight:600}}>
-                      ${(it.product.price*it.quantity).toFixed(2)}
+                      NT${Math.round(it.product.price*it.quantity)}
                     </div>
                   </div>
                 </div>
@@ -127,7 +127,7 @@ export default function CartPage(){
             }}>
               <div>
                 <div style={{fontSize:14,color:'var(--text-secondary)',marginBottom:4}}>總金額</div>
-                <div style={{fontSize:40,fontWeight:700}}>${total()}</div>
+                <div style={{fontSize:40,fontWeight:700}}>NT${Math.round(parseFloat(total()))}</div>
               </div>
               <Link to="/checkout" className="btn large">
                 前往結帳

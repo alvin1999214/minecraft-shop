@@ -46,7 +46,7 @@ export default function CheckoutPage(){
       return;
     }
     const script = document.createElement('script');
-    script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=USD`;
+    script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=TWD`;
     script.async = true;
     script.onload = () => setPaypalLoaded(true);
     document.body.appendChild(script);
@@ -153,7 +153,9 @@ export default function CheckoutPage(){
                   <div style={{fontWeight:500}}>{it.product.name}</div>
                   <div style={{fontSize:14,color:'var(--text-secondary)'}}>數量: {it.quantity}</div>
                 </div>
-                <div style={{fontWeight:600}}>${(it.product.price*it.quantity).toFixed(2)}</div>
+                <div>
+                  <div style={{fontWeight:600}}>NT${Math.round(it.product.price*it.quantity)}</div>
+                </div>
               </div>
             ))}
             <div style={{
@@ -164,7 +166,7 @@ export default function CheckoutPage(){
               fontWeight:700
             }}>
               <div>總計</div>
-              <div>${total()}</div>
+              <div>NT${Math.round(parseFloat(total()))}</div>
             </div>
           </div>
         </div>

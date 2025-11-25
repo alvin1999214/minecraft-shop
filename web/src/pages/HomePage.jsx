@@ -18,7 +18,7 @@ const ProductCard = ({ product }) => (
           {product.description?.substring(0, 60) || '精選商品'}
         </div>
         <div style={{fontSize:17,fontWeight:400,color:'var(--text-primary)'}}>
-          ${product.price}
+          NT${Math.round(product.price)}
         </div>
       </div>
     </div>

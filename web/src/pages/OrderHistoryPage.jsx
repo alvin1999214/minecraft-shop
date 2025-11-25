@@ -57,7 +57,7 @@ export default function OrderHistoryPage(){
                 <div className="muted">{new Date(o.createdAt||o.updatedAt||Date.now()).toLocaleString()}</div>
               </div>
               <div style={{textAlign:'right'}}>
-                <div style={{color:'var(--accent)',fontWeight:700}}>${o.totalAmount || 0}</div>
+                <div style={{color:'var(--accent)',fontWeight:700}}>NT${Math.round(o.totalAmount || 0)}</div>
                 <div style={{marginTop:8}}><Link to={`/orders/${o.id}`}>查看詳情</Link></div>
               </div>
             </div>
