@@ -245,7 +245,7 @@ export default function AdminPanelPage() {
                     <div className="muted">總額</div>
                     <div style={{fontWeight:700}}>${o.totalAmount}</div>
                   </div>
-                  {o.proofUrl && <div style={{marginTop:8}}><img src={o.proofUrl} alt="proof" style={{width:120,borderRadius:6}}/></div>}
+                  {o.proofUrl && <div style={{marginTop:8}}><img src={`/api${o.proofUrl}`} alt="proof" style={{width:120,borderRadius:6}}/></div>}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
                   <div style={{fontWeight:700,color:o.status==='approved' ? 'var(--success)' : o.status==='rejected' ? 'var(--danger)' : 'var(--accent)'}}>{o.status}</div>
