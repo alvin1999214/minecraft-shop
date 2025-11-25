@@ -92,7 +92,7 @@ export default function OrderDetailPage(){
         <div style={{marginTop:12}}>
           <div className="muted">付款證明</div>
           {preview ? (
-            <div className="file-preview" style={{marginTop:8}}><img src={preview} alt="proof" style={{maxWidth:'100%',borderRadius:8}}/></div>
+            <div className="file-preview" style={{marginTop:8}}><img src={`/api${preview}`} alt="proof" style={{maxWidth:'100%',borderRadius:8}}/></div>
           ) : (
             <div className="muted" style={{marginTop:8}}>尚未上傳付款證明</div>
           )}
