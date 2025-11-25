@@ -12,6 +12,7 @@ export default function AdminPanelPage() {
   const [loadError, setLoadError] = useState('');
   const [authorized, setAuthorized] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [viewingProof, setViewingProof] = useState(null); // 新增：用於放大檢視付款證明
 
   const token = localStorage.getItem('admin_token');
   const navigate = useNavigate();
@@ -245,7 +246,17 @@ export default function AdminPanelPage() {
                     <div className="muted">總額</div>
                     <div style={{fontWeight:700}}>${o.totalAmount}</div>
                   </div>
-                  {o.proofUrl && <div style={{marginTop:8}}><img src={`/api${o.proofUrl}`} alt="proof" style={{width:120,borderRadius:6}}/></div>}
+                  {o.proofUrl && (
+                    <div style={{marginTop:8}}>
+                      <img 
+                        src={`/api${o.proofUrl}`} 
+                        alt="proof" 
+                        style={{width:120,borderRadius:6,cursor:'pointer'}}
+                        onClick={() => setViewingProof(`/api${o.proofUrl}`)}
+                        title="點擊放大檢視"
+                      />
+                    </div>
+                  )}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
                   <div style={{fontWeight:700,color:o.status==='approved' ? 'var(--success)' : o.status==='rejected' ? 'var(--danger)' : 'var(--accent)'}}>{o.status}</div>
@@ -265,6 +276,60 @@ export default function AdminPanelPage() {
         onClose={() => setEditingProduct(null)}
         onSave={handleSaveProduct}
       />
+
+      {viewingProof && (
+        <div 
+          style={{
+            position:'fixed',
+            top:0,
+            left:0,
+            width:'100vw',
+            height:'100vh',
+            background:'rgba(0,0,0,0.8)',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'center',
+            zIndex:1000,
+            cursor:'pointer'
+          }}
+          onClick={() => setViewingProof(null)}
+        >
+          <div style={{position:'relative',maxWidth:'90%',maxHeight:'90%'}}>
+            <img 
+              src={viewingProof} 
+              alt="付款證明" 
+              style={{
+                maxWidth:'100%',
+                maxHeight:'90vh',
+                borderRadius:8,
+                boxShadow:'0 8px 32px rgba(0,0,0,0.5)'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+            <button 
+              style={{
+                position:'absolute',
+                top:10,
+                right:10,
+                background:'rgba(255,255,255,0.9)',
+                border:'none',
+                borderRadius:'50%',
+                width:36,
+                height:36,
+                fontSize:20,
+                cursor:'pointer',
+                fontWeight:'bold',
+                display:'flex',
+                alignItems:'center',
+                justifyContent:'center'
+              }}
+              onClick={() => setViewingProof(null)}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
