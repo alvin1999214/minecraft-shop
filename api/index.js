@@ -630,6 +630,34 @@ app.post('/admin/orders/:id/reject', adminAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+// Alias routes for items (same as orders)
+app.post('/admin/orders/items/:id/approve', adminAuth, async (req, res) => {
+  const id = req.params.id;
+  const order = (await pool.query('SELECT o.*, p.command FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.id=$1', [id])).rows[0];
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.status === 'approved') return res.status(400).json({ error: 'Already approved' });
+  const cmdTemplate = order.command || '';
+  const playerid = order.playerid;
+  const cmd = cmdTemplate.replace(/\{playerid\}/g, playerid);
+  try {
+    const resp = await runRconCommand(cmd);
+    await pool.query('UPDATE orders SET status=$1, approved_at=now(), rcon_result=$2 WHERE id=$3', ['approved', resp ? String(resp) : null, id]);
+    return res.json({ success: true, resp });
+  } catch (e) {
+    console.error('Approve failed:', e && e.stack ? e.stack : e);
+    return res.status(500).json({ error: 'Failed to run command', detail: e.message });
+  }
+});
+
+app.post('/admin/orders/items/:id/reject', adminAuth, async (req, res) => {
+  const id = req.params.id;
+  const order = (await pool.query('SELECT * FROM orders WHERE id=$1', [id])).rows[0];
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.status === 'rejected') return res.status(400).json({ error: 'Already rejected' });
+  await pool.query('UPDATE orders SET status=$1 WHERE id=$2', ['rejected', id]);
+  res.json({ success: true });
+});
+
 // simple health
 app.get('/health', (req, res) => res.json({ ok: true }));
 
