@@ -12,6 +12,7 @@ import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import AdminLoginPage from './pages/AdminLoginPage'
 import AdminPanelPage from './pages/AdminPanelPage'
+import ChangePasswordPage from './pages/ChangePasswordPage'
 import NavBar from './components/NavBar'
 import AnimatedPage from './components/AnimatedPage'
 
@@ -30,6 +31,7 @@ export default function App(){
           <Route path="/orders/:id" element={<OrderDetailPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route path="/admin" element={<AdminPanelPage />} />
         </Routes>

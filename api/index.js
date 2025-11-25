@@ -216,6 +216,91 @@ app.post('/admin/login', async (req, res) => {
   res.status(401).json({ error: 'Invalid password' });
 });
 
+// Player change password (authenticated)
+app.post('/auth/change-password', playerAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: '缺少欄位' });
+  if (newPassword.length < 6) return res.status(400).json({ error: '新密碼至少需要6個字符' });
+  
+  const uid = req.user.uid;
+  const user = (await pool.query('SELECT * FROM users WHERE id=$1', [uid])).rows[0];
+  if (!user) return res.status(404).json({ error: '用戶不存在' });
+  
+  const ok = await bcrypt.compare(currentPassword, user.password_hash);
+  if (!ok) return res.status(400).json({ error: '當前密碼錯誤' });
+  
+  const hash = await bcrypt.hash(newPassword, 10);
+  await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, uid]);
+  res.json({ success: true, message: '密碼已更新' });
+});
+
+// Admin: get all users
+app.get('/admin/users', adminAuth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, playerid, created_at FROM users ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (e) {
+    console.error('Error fetching users:', e);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Admin: reset user password (generates random password)
+app.post('/admin/users/:id/reset-password', adminAuth, async (req, res) => {
+  const userId = req.params.id;
+  
+  try {
+    const user = (await pool.query('SELECT * FROM users WHERE id=$1', [userId])).rows[0];
+    if (!user) return res.status(404).json({ error: '用戶不存在' });
+    
+    // Generate random password (8 characters: letters and numbers)
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let newPassword = '';
+    for (let i = 0; i < 8; i++) {
+      newPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, userId]);
+    
+    res.json({ 
+      success: true, 
+      newPassword,
+      playerid: user.playerid,
+      message: '密碼已重置，請將新密碼通過 Discord 發送給用戶' 
+    });
+  } catch (e) {
+    console.error('Error resetting password:', e);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// Admin: delete user
+app.delete('/admin/users/:id', adminAuth, async (req, res) => {
+  const userId = req.params.id;
+  
+  try {
+    // Check if user has orders
+    const orders = await pool.query('SELECT COUNT(*) as count FROM orders WHERE user_id=$1', [userId]);
+    const hasOrders = parseInt(orders.rows[0].count) > 0;
+    
+    if (hasOrders) {
+      return res.status(400).json({ 
+        error: '無法刪除：該用戶有訂單記錄',
+        suggestion: '建議重置密碼而不是刪除帳號'
+      });
+    }
+    
+    await pool.query('DELETE FROM cart_items WHERE user_id=$1', [userId]);
+    await pool.query('DELETE FROM users WHERE id=$1', [userId]);
+    
+    res.json({ success: true, message: '用戶已刪除' });
+  } catch (e) {
+    console.error('Error deleting user:', e);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
 function adminAuth(req, res, next) {
   const h = req.headers.authorization;
   if (!h) return res.status(401).json({ error: 'Missing token' });

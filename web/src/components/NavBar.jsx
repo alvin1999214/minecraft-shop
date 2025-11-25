@@ -25,6 +25,9 @@ export default function NavBar({cartCount = 0}){
         {playerid ? (
           <>
             <span className="nav-link" style={{opacity:0.6}}>{playerid}</span>
+            <Link to="/change-password" className="nav-link" style={{fontSize:12}}>
+              🔒 修改密碼
+            </Link>
             <button 
               className="btn ghost" 
               style={{padding:'6px 14px',fontSize:12}} 

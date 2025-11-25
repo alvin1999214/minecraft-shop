@@ -6,6 +6,7 @@ import ProductEditModal from '../components/ProductEditModal';
 export default function AdminPanelPage() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ name: '', price: '', command: '', stock: '', description: '', image: null });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -16,6 +17,7 @@ export default function AdminPanelPage() {
   const [activeSection, setActiveSection] = useState('products-list');
   const [orderPage, setOrderPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [resetPasswordResult, setResetPasswordResult] = useState(null);
   const ordersPerPage = 10;
 
   const token = localStorage.getItem('admin_token');
@@ -26,6 +28,7 @@ export default function AdminPanelPage() {
     setAuthorized(true);
     fetchProducts();
     fetchOrders();
+    fetchUsers();
   }, []);
 
   const fetchProducts = async () => {
@@ -50,6 +53,17 @@ export default function AdminPanelPage() {
       setOrders([]);
       setLoadError('訂單載入失敗，請檢查權限或後端API');
       console.error(e);
+    }
+  }
+
+  const fetchUsers = async () => {
+    if(!token) return;
+    try{
+      const res = await apiClient.get('/admin/users', { headers: { Authorization: `Bearer ${token}` } });
+      setUsers(Array.isArray(res.data) ? res.data : []);
+    }catch(e){
+      setUsers([]);
+      console.error('Failed to fetch users:', e);
     }
   }
 
@@ -139,6 +153,38 @@ export default function AdminPanelPage() {
       throw e;
     }
   };
+
+  const handleResetPassword = async (userId) => {
+    if(!token) return;
+    if(!confirm('確定要重置此用戶的密碼嗎？')) return;
+    
+    try{
+      const res = await apiClient.post(`/admin/users/${userId}/reset-password`, {}, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      });
+      setResetPasswordResult(res.data);
+    }catch(e){
+      alert('重置密碼失敗: ' + (e.response?.data?.error || e.message));
+    }
+  }
+
+  const handleDeleteUser = async (userId) => {
+    if(!token) return;
+    if(!confirm('確定要刪除此用戶嗎？此操作不可逆轉！')) return;
+    
+    try{
+      const res = await apiClient.delete(`/admin/users/${userId}`, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      });
+      alert(res.data.message);
+      fetchUsers();
+    }catch(e){
+      alert('刪除失敗: ' + (e.response?.data?.error || e.message));
+      if(e.response?.data?.suggestion){
+        alert('建議: ' + e.response.data.suggestion);
+      }
+    }
+  }
 
   if(!authorized) return null;
 
@@ -333,6 +379,41 @@ export default function AdminPanelPage() {
                 {stats.pendingOrders}
               </span>
             )}
+          </button>
+
+          <div style={{ 
+            fontSize: 11, 
+            fontWeight: 600, 
+            color: 'rgba(255,255,255,0.4)',
+            margin: '24px 0 8px',
+            padding: '0 8px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+          }}>
+            用戶管理
+          </div>
+          <button
+            onClick={() => { setActiveSection('users'); setResetPasswordResult(null); }}
+            style={{
+              width: '100%',
+              background: activeSection === 'users' ? 'rgba(102, 126, 234, 0.2)' : 'transparent',
+              border: activeSection === 'users' ? '1px solid rgba(102, 126, 234, 0.3)' : '1px solid transparent',
+              borderRadius: 8,
+              padding: '12px 16px',
+              marginBottom: 4,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              color: activeSection === 'users' ? '#667eea' : 'rgba(255,255,255,0.7)',
+              fontSize: 14,
+              fontWeight: activeSection === 'users' ? 600 : 400,
+              transition: 'all 0.2s',
+              textAlign: 'left',
+            }}
+          >
+            <span style={{ fontSize: 18 }}>👥</span>
+            用戶列表
           </button>
         </nav>
 
@@ -1244,6 +1325,157 @@ export default function AdminPanelPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 用戶管理 */}
+        {activeSection === 'users' && (
+          <div>
+            <div style={{
+              marginBottom: 32,
+              paddingBottom: 20,
+              borderBottom: '2px solid rgba(255,255,255,0.1)',
+            }}>
+              <h2 style={{
+                margin: 0,
+                fontSize: 28,
+                fontWeight: 700,
+                color: 'white',
+              }}>
+                👥 用戶管理
+              </h2>
+              <p style={{
+                margin: '8px 0 0',
+                fontSize: 14,
+                color: 'rgba(255,255,255,0.7)',
+              }}>
+                共 {users.length} 個註冊用戶
+              </p>
+            </div>
+
+            {resetPasswordResult && (
+              <div style={{
+                background: '#4ade80',
+                color: 'white',
+                padding: 20,
+                borderRadius: 12,
+                marginBottom: 24,
+              }}>
+                <h3 style={{ margin: '0 0 12px', fontSize: 18 }}>
+                  ✅ 密碼重置成功
+                </h3>
+                <div style={{ fontSize: 14, marginBottom: 8 }}>
+                  <strong>玩家ID：</strong>{resetPasswordResult.playerid}
+                </div>
+                <div style={{ 
+                  background: 'rgba(0,0,0,0.2)', 
+                  padding: 12, 
+                  borderRadius: 8,
+                  marginBottom: 12,
+                  fontFamily: 'monospace',
+                  fontSize: 16,
+                  letterSpacing: 1,
+                }}>
+                  <strong>新密碼：</strong> {resetPasswordResult.newPassword}
+                </div>
+                <div style={{ fontSize: 13, opacity: 0.9 }}>
+                  ⚠️ 請將此密碼通過 Discord 發送給用戶，然後關閉此提示
+                </div>
+                <button
+                  onClick={() => setResetPasswordResult(null)}
+                  style={{
+                    marginTop: 12,
+                    padding: '8px 16px',
+                    background: 'white',
+                    color: '#4ade80',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  關閉
+                </button>
+              </div>
+            )}
+
+            <div style={{
+              background: 'white',
+              borderRadius: 16,
+              padding: 0,
+              boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+              overflow: 'hidden',
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                    <th style={{ padding: 16, textAlign: 'left', fontWeight: 600, color: '#334155' }}>
+                      玩家 ID
+                    </th>
+                    <th style={{ padding: 16, textAlign: 'left', fontWeight: 600, color: '#334155' }}>
+                      註冊時間
+                    </th>
+                    <th style={{ padding: 16, textAlign: 'right', fontWeight: 600, color: '#334155' }}>
+                      操作
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan="3" style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+                        暫無用戶
+                      </td>
+                    </tr>
+                  )}
+                  {users.map(user => (
+                    <tr key={user.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: 16 }}>
+                        <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                          {user.playerid}
+                        </div>
+                      </td>
+                      <td style={{ padding: 16, color: '#64748b', fontSize: 14 }}>
+                        {new Date(user.created_at).toLocaleString('zh-TW')}
+                      </td>
+                      <td style={{ padding: 16, textAlign: 'right' }}>
+                        <button
+                          onClick={() => handleResetPassword(user.id)}
+                          style={{
+                            padding: '8px 16px',
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            marginRight: 8,
+                          }}
+                        >
+                          🔑 重置密碼
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUser(user.id)}
+                          style={{
+                            padding: '8px 16px',
+                            background: '#ef4444',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            fontWeight: 600,
+                          }}
+                        >
+                          🗑️ 刪除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
