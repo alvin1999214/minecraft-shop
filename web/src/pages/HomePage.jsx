@@ -11,7 +11,7 @@ const ProductCard = ({ product }) => (
       />
       <div style={{padding:'0 8px'}}>
         <div style={{color:product.stock>0?'var(--success)':'var(--danger)',fontSize:12,fontWeight:500,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.5px'}}>
-          {product.stock>0?'有貨':'缺貨'}
+          {product.stock>0?'貨餘充足':'缺貨'}
         </div>
         <h3 style={{margin:'0 0 4px 0',fontSize:21,fontWeight:600}}>{product.name}</h3>
         <div style={{fontSize:14,color:'var(--text-secondary)',marginBottom:8}}>
