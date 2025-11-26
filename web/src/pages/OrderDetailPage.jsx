@@ -63,45 +63,106 @@ export default function OrderDetailPage(){
   
   return (
     <div className="container">
-      <Link to="/orders">← 返回訂單列表</Link>
-      <h1 style={{margin:'8px 0 12px 0'}}>訂單 #{String(id).substring(0,8)}</h1>
-      <div className="card">
-        <div style={{display:'flex',justifyContent:'space-between'}}>
+      <Link to="/orders" style={{marginBottom:16,display:'inline-block'}}>← 返回訂單列表</Link>
+      <h1 style={{margin:'8px 0 24px 0',textAlign:'center'}}>訂單 #{order.orderGroupId ? order.orderGroupId.substring(0,8).toUpperCase() : 'N/A'}</h1>
+      
+      {/* Order Summary Card */}
+      <div style={{
+        background:'white',
+        borderRadius:16,
+        padding:24,
+        marginBottom:24,
+        boxShadow:'0 4px 6px rgba(0,0,0,0.1)'
+      }}>
+        <h3 style={{marginTop:0,marginBottom:16}}>訂單資訊</h3>
+        <div style={{
+          display:'grid',
+          gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',
+          gap:16
+        }}>
           <div>
-            <div className="muted">狀態</div>
-            <div style={{fontWeight:700,color:order.status==='approved'?'var(--success)':order.status==='rejected'?'var(--danger)':'var(--accent)'}}>{order.status}</div>
+            <div style={{fontSize:12,color:'#6b7280',marginBottom:4}}>玩家 ID</div>
+            <div style={{fontWeight:600}}>{order.playerid || 'N/A'}</div>
           </div>
-          <div>
-            <div className="muted">總額</div>
-            <div style={{fontWeight:700}}>NT${Math.round(order.totalAmount || 0)}</div>
-          </div>
-        </div>
-
-        {order.productName && (
-          <div style={{marginTop:12}}>
-            <div className="muted">商品</div>
-            <div style={{fontWeight:700}}>{order.productName}</div>
-          </div>
-        )}
-
-        <div style={{marginTop:12}}>
-          <div className="muted">建立時間</div>
-          <div>{new Date(order.createdAt || Date.now()).toLocaleString()}</div>
-        </div>
-
-        <div style={{marginTop:12}}>
-          <div className="muted">付款證明</div>
-          {preview ? (
-            <div className="file-preview" style={{marginTop:8}}><img src={`/api${preview}`} alt="proof" style={{maxWidth:'100%',borderRadius:8}}/></div>
-          ) : (
-            <div className="muted" style={{marginTop:8}}>尚未上傳付款證明</div>
-          )}
-          {order.status === 'pending' && (
-            <div style={{marginTop:12}}>
-              <input type="file" accept="image/*" onChange={e=>e.target.files[0] && handleUpload(e.target.files[0])} />
+          {order.discordId && (
+            <div>
+              <div style={{fontSize:12,color:'#6b7280',marginBottom:4}}>Discord ID</div>
+              <div style={{fontWeight:600}}>{order.discordId}</div>
             </div>
           )}
+          <div>
+            <div style={{fontSize:12,color:'#6b7280',marginBottom:4}}>總金額</div>
+            <div style={{fontSize:20,fontWeight:700,color:'#667eea'}}>NT${Math.round(order.totalAmount || 0)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:12,color:'#6b7280',marginBottom:4}}>付款方式</div>
+            <div style={{fontWeight:600}}>
+              {order.paymentMethod === 'manual' ? '手動上傳' : 
+               order.paymentMethod === 'paypal' ? 'PayPal' :
+               order.paymentMethod === 'stripe' ? 'Stripe' : 'N/A'}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:12,color:'#6b7280',marginBottom:4}}>下單時間</div>
+            <div style={{fontSize:13}}>{order.createdAt ? new Date(order.createdAt).toLocaleString('zh-TW') : 'N/A'}</div>
+          </div>
         </div>
+
+        {order.proofUrl && (
+          <div style={{marginTop:20}}>
+            <div style={{fontSize:12,color:'#6b7280',marginBottom:8}}>付款證明</div>
+            <div className="file-preview">
+              <img src={`/api${order.proofUrl}`} alt="proof" style={{maxWidth:'100%',borderRadius:8,boxShadow:'0 2px 4px rgba(0,0,0,0.1)'}}/>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Order Items */}
+      <h3 style={{marginBottom:16}}>訂單項目</h3>
+      <div style={{display:'grid',gap:12}}>
+        {order.items && order.items.length > 0 ? order.items.map((item, idx) => (
+          <div 
+            key={item.id}
+            style={{
+              background:'white',
+              borderRadius:12,
+              padding:20,
+              boxShadow:'0 2px 4px rgba(0,0,0,0.08)',
+              display:'flex',
+              justifyContent:'space-between',
+              alignItems:'center'
+            }}
+          >
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:16,marginBottom:8}}>{item.productName || '未知商品'}</div>
+              <div style={{display:'flex',gap:16,fontSize:14,color:'#6b7280'}}>
+                <div>價格: NT${Math.round(item.price || 0)}</div>
+                <div>狀態: <span style={{
+                  color: item.status === 'approved' ? '#10b981' : 
+                         item.status === 'rejected' ? '#ef4444' : '#f59e0b',
+                  fontWeight:600
+                }}>
+                  {item.status === 'approved' ? '已批准' :
+                   item.status === 'rejected' ? '已拒絕' : '待處理'}
+                </span></div>
+                {item.approvedAt && (
+                  <div>批准時間: {new Date(item.approvedAt).toLocaleString('zh-TW')}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )) : (
+          <div style={{
+            background:'white',
+            borderRadius:12,
+            padding:20,
+            textAlign:'center',
+            color:'#6b7280'
+          }}>
+            無訂單項目
+          </div>
+        )}
       </div>
     </div>
   )

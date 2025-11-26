@@ -18,7 +18,7 @@ export default function AdminPanelPage() {
   const [orderPage, setOrderPage] = useState(1);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [resetPasswordResult, setResetPasswordResult] = useState(null);
-  const ordersPerPage = 10;
+  const ordersPerPage = 5;
 
   const token = localStorage.getItem('admin_token');
   const navigate = useNavigate();

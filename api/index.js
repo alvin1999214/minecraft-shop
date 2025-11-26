@@ -791,47 +791,108 @@ app.post('/orders/:groupId/upload_proof', playerAuth, upload.single('file'), asy
 // Player: get own orders
 app.get('/orders', playerAuth, async (req, res) => {
   const uid = req.user.uid;
-  const result = await pool.query('SELECT o.*, p.name AS product_name, p.command, p.price FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.user_id=$1 ORDER BY o.id DESC', [uid]);
-  // 將欄位轉為 camelCase 並補齊 totalAmount
+  // Get order groups with summary info (similar to admin view)
+  const result = await pool.query(`
+    SELECT 
+      o.order_group_id,
+      MAX(o.playerid) as playerid,
+      MAX(o.discord_id) as discord_id,
+      MAX(o.proof_path) as proof_path,
+      MAX(o.payment_method) as payment_method,
+      MAX(o.paypal_order_id) as paypal_order_id,
+      MIN(o.created_at) as created_at,
+      SUM(p.price) as total_amount,
+      COUNT(o.id) as item_count,
+      STRING_AGG(DISTINCT o.status, ',') as statuses
+    FROM orders o 
+    LEFT JOIN products p ON p.id = o.product_id 
+    WHERE o.user_id=$1 AND o.order_group_id IS NOT NULL
+    GROUP BY o.order_group_id
+    ORDER BY MIN(o.created_at) DESC
+  `, [uid]);
+  
   const rows = result.rows.map(o => ({
-    id: o.id,
-    userId: o.user_id,
+    orderGroupId: o.order_group_id,
     playerid: o.playerid,
     discordId: o.discord_id,
-    productId: o.product_id,
-    productName: o.product_name,
     proofUrl: o.proof_path,
-    status: o.status,
+    paymentMethod: o.payment_method,
+    paypalOrderId: o.paypal_order_id,
     createdAt: o.created_at,
-    approvedAt: o.approved_at,
-    rconResult: o.rcon_result,
-    command: o.command,
-    totalAmount: o.price
+    totalAmount: parseFloat(o.total_amount || 0),
+    itemCount: parseInt(o.item_count || 0),
+    statuses: o.statuses
   }));
   res.json(rows);
 });
 
 // Player: get single order if owned
 app.get('/orders/:id', playerAuth, async (req, res) => {
-  const id = req.params.id;
+  const groupId = req.params.id;
   const uid = req.user.uid;
-  const result = await pool.query('SELECT o.*, p.name AS product_name, p.price, p.command FROM orders o LEFT JOIN products p ON p.id = o.product_id WHERE o.id=$1 AND o.user_id=$2', [id, uid]);
-  if (result.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-  const o = result.rows[0];
+  
+  // Get order group summary
+  const summaryResult = await pool.query(`
+    SELECT 
+      o.order_group_id,
+      MAX(o.playerid) as playerid,
+      MAX(o.discord_id) as discord_id,
+      MAX(o.proof_path) as proof_path,
+      MAX(o.payment_method) as payment_method,
+      MAX(o.paypal_order_id) as paypal_order_id,
+      MIN(o.created_at) as created_at,
+      SUM(p.price) as total_amount
+    FROM orders o 
+    LEFT JOIN products p ON p.id = o.product_id 
+    WHERE o.order_group_id=$1 AND o.user_id=$2
+    GROUP BY o.order_group_id
+  `, [groupId, uid]);
+  
+  if (summaryResult.rows.length === 0) {
+    return res.status(404).json({ error: 'Order not found' });
+  }
+  
+  // Get order items
+  const itemsResult = await pool.query(`
+    SELECT 
+      o.id,
+      o.product_id,
+      o.status,
+      o.approved_at,
+      o.rcon_result,
+      o.created_at,
+      p.name as product_name,
+      p.price,
+      p.command
+    FROM orders o 
+    LEFT JOIN products p ON p.id = o.product_id 
+    WHERE o.order_group_id=$1 AND o.user_id=$2
+    ORDER BY o.created_at ASC
+  `, [groupId, uid]);
+  
+  const summary = summaryResult.rows[0];
+  const items = itemsResult.rows.map(item => ({
+    id: item.id,
+    productId: item.product_id,
+    productName: item.product_name,
+    price: parseFloat(item.price || 0),
+    command: item.command,
+    status: item.status,
+    approvedAt: item.approved_at,
+    rconResult: item.rcon_result,
+    createdAt: item.created_at
+  }));
+  
   res.json({
-    id: o.id,
-    userId: o.user_id,
-    playerid: o.playerid,
-    discordId: o.discord_id,
-    productId: o.product_id,
-    productName: o.product_name,
-    proofUrl: o.proof_path,
-    status: o.status,
-    createdAt: o.created_at,
-    approvedAt: o.approved_at,
-    rconResult: o.rcon_result,
-    command: o.command,
-    totalAmount: o.price
+    orderGroupId: summary.order_group_id,
+    playerid: summary.playerid,
+    discordId: summary.discord_id,
+    proofUrl: summary.proof_path,
+    paymentMethod: summary.payment_method,
+    paypalOrderId: summary.paypal_order_id,
+    createdAt: summary.created_at,
+    totalAmount: parseFloat(summary.total_amount || 0),
+    items: items
   });
 });
 
