@@ -43,14 +43,17 @@ export const getPaymentMethods = ()=>apiClient.get('/payment-methods');
 export const updateProduct = (id, formData)=>apiClient.put(`/products/${id}`, formData, {headers:{'Content-Type':'multipart/form-data'}});
 export const toggleProductStatus = (id, active)=>apiClient.put(`/products/${id}`, {active});
 
+// Currency API
+export const getCurrencyConfig = ()=>apiClient.get('/currency/config');
+
 // PayPal API
 export const getPayPalConfig = ()=>apiClient.get('/paypal/config');
-export const createPayPalOrder = ()=>apiClient.post('/paypal/create-order');
+export const createPayPalOrder = (currency)=>apiClient.post('/paypal/create-order', { currency });
 export const capturePayPalOrder = (orderID, discordId)=>apiClient.post('/paypal/capture-order', {orderID, discordId});
 
 // Stripe API
 export const getStripeConfig = ()=>apiClient.get('/stripe/config');
-export const createStripePaymentIntent = ()=>apiClient.post('/stripe/create-payment-intent');
+export const createStripePaymentIntent = (currency)=>apiClient.post('/stripe/create-payment-intent', { currency });
 export const confirmStripePayment = (paymentIntentId, discordId)=>apiClient.post('/stripe/confirm-payment', {paymentIntentId, discordId});
 
 export default apiClient;

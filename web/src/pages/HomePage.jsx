@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getProducts } from '../services/api';
+import { useCurrency } from '../contexts/CurrencyContext';
 
-const ProductCard = ({ product }) => (
+const ProductCard = ({ product, formatPrice }) => (
   <Link to={`/product/${product.id}`} style={{textDecoration:'none',color:'inherit'}}>
     <div className="product">
       <img 
@@ -18,7 +19,7 @@ const ProductCard = ({ product }) => (
           {product.description?.substring(0, 60) || '精選商品'}
         </div>
         <div style={{fontSize:17,fontWeight:400,color:'var(--text-primary)'}}>
-          NT${Math.round(product.price)}
+          {formatPrice(product.price)}
         </div>
       </div>
     </div>
@@ -28,6 +29,8 @@ const ProductCard = ({ product }) => (
 export default function HomePage(){
   const [products,setProducts]=useState([]);
   const [loading,setLoading]=useState(true);
+  const { formatPrice } = useCurrency();
+  
   useEffect(()=>{
     (async()=>{
       try{const r=await getProducts();setProducts(r.data||[])}catch(e){console.error(e)}finally{setLoading(false)}
@@ -76,7 +79,7 @@ export default function HomePage(){
             </div>
           ) : (
             <div className="grid">
-              {products.map((p) => (<ProductCard key={p.id} product={p} />))}
+              {products.map((p) => (<ProductCard key={p.id} product={p} formatPrice={formatPrice} />))}
             </div>
           )}
         </div>

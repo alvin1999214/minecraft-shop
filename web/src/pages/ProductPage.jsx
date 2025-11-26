@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getProduct, addToCart } from '../services/api';
+import { useCurrency } from '../contexts/CurrencyContext';
 
 export default function ProductPage(){
   const {id}=useParams();
@@ -8,6 +9,7 @@ export default function ProductPage(){
   const [loading,setLoading]=useState(true);
   const [qty,setQty]=useState(1);
   const navigate=useNavigate();
+  const { formatPrice } = useCurrency();
   useEffect(()=>{(async()=>{try{const r=await getProduct(id);setProduct(r.data);}catch(e){console.error(e)}finally{setLoading(false)}})()},[id]);
   const handleAdd=async()=>{
     try{
@@ -58,7 +60,7 @@ export default function ProductPage(){
             <h1>{product.name}</h1>
             <p className="headline" style={{marginTop:16}}>{product.description || '精選商品'}</p>
             <div style={{fontSize:32,fontWeight:600,marginTop:24,color:'var(--text-primary)'}}>
-              NT${Math.round(product.price)}
+              {formatPrice(product.price)}
             </div>
           </div>
 

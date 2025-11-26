@@ -3,6 +3,7 @@ import { getCart, checkout, uploadPaymentProof, getPayPalConfig, createPayPalOrd
 import { useNavigate } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { useCurrency } from '../contexts/CurrencyContext';
 
 // Stripe payment form component
 function StripePaymentForm({ discordId, onSuccess, onError }) {
@@ -37,7 +38,18 @@ function StripePaymentForm({ discordId, onSuccess, onError }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <PaymentElement />
+      <PaymentElement 
+        options={{
+          layout: {
+            type: 'tabs',
+            defaultCollapsed: false,
+          },
+          wallets: {
+            applePay: 'auto',
+            googlePay: 'auto',
+          },
+        }}
+      />
       <button
         type="submit"
         disabled={!stripe || isProcessing}
@@ -64,6 +76,16 @@ export default function CheckoutPage(){
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const discordIdRef = useRef('');
   const navigate=useNavigate();
+  const { currency, formatPrice } = useCurrency();
+  
+  // Reset Stripe client secret when currency changes
+  useEffect(() => {
+    if (stripeClientSecret) {
+      setStripeClientSecret(null);
+    }
+  }, [currency]);
+  
+  const total = () => cart.reduce((s,i) => s + (i.product.price * i.quantity), 0);
   
   useEffect(()=>{(async()=>{
     const token = localStorage.getItem('token');
@@ -113,7 +135,6 @@ export default function CheckoutPage(){
     document.body.appendChild(script);
   };
   
-  const total=()=>cart.reduce((s,i)=>s+(i.product.price*i.quantity),0).toFixed(2)
   const handleSubmit=async(e)=>{
     e.preventDefault();
     if (paymentMethod === 'manual' && !proof) {
@@ -153,7 +174,7 @@ export default function CheckoutPage(){
   // Create Stripe payment intent when stripe method is selected
   useEffect(() => {
     if (paymentMethod === 'stripe' && stripePromise && !stripeClientSecret) {
-      createStripePaymentIntent()
+      createStripePaymentIntent(currency)
         .then(response => {
           setStripeClientSecret(response.data.clientSecret);
         })
@@ -186,7 +207,7 @@ export default function CheckoutPage(){
         window.paypal.Buttons({
           createOrder: async () => {
             try {
-              const response = await createPayPalOrder();
+              const response = await createPayPalOrder(currency);
               return response.data.id;
             } catch (error) {
               console.error('Error creating PayPal order:', error);
@@ -214,7 +235,7 @@ export default function CheckoutPage(){
         }).render('#paypal-button-container');
       }
     }
-  }, [paymentMethod, paypalLoaded, navigate]);
+  }, [paymentMethod, paypalLoaded, navigate, currency]);
   if(loading) return <div style={{textAlign:'center',padding:120}}><div className="loading-spinner"></div></div>
   return (
     <section className="section">
@@ -241,7 +262,7 @@ export default function CheckoutPage(){
                   <div style={{fontSize:14,color:'var(--text-secondary)'}}>數量: {it.quantity}</div>
                 </div>
                 <div>
-                  <div style={{fontWeight:600}}>NT${Math.round(it.product.price*it.quantity)}</div>
+                  <div style={{fontWeight:600}}>{formatPrice(it.product.price * it.quantity)}</div>
                 </div>
               </div>
             ))}
@@ -253,7 +274,7 @@ export default function CheckoutPage(){
               fontWeight:700
             }}>
               <div>總計</div>
-              <div>NT${Math.round(parseFloat(total()))}</div>
+              <div>{formatPrice(total())}</div>
             </div>
           </div>
         </div>
@@ -384,10 +405,22 @@ export default function CheckoutPage(){
           <div>
             <h3 style={{marginBottom:24}}>Stripe付款</h3>
             <p style={{marginBottom:24,color:'var(--text-secondary)'}}>
-              使用信用卡/金融卡付款後，訂單將自動批准並發放商品
+              支援信用卡、Apple Pay、Google Pay、微信支付、支付寶等多種付款方式
             </p>
             {stripeClientSecret && stripePromise ? (
-              <Elements stripe={stripePromise} options={{clientSecret: stripeClientSecret}}>
+              <Elements 
+                stripe={stripePromise} 
+                options={{
+                  clientSecret: stripeClientSecret,
+                  appearance: {
+                    theme: 'stripe',
+                    variables: {
+                      colorPrimary: '#0066cc',
+                    },
+                  },
+                  locale: 'zh-TW',
+                }}
+              >
                 <StripePaymentForm 
                   discordId={form.discordId}
                   onSuccess={handleStripeSuccess}

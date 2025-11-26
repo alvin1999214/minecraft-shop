@@ -27,6 +27,55 @@ const upload = multer({
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Currency configuration
+function getCurrencyConfig() {
+  try {
+    const configPath = path.join(__dirname, 'currency-config.json');
+    if (!fs.existsSync(configPath)) {
+      console.log('Currency config not found, using default TWD');
+      return {
+        currency: 'TWD',
+        exchange_rates: { TWD_to_HKD: 0.2, HKD_to_TWD: 5 },
+        symbols: { TWD: 'NT$', HKD: 'HK$' },
+        stripe_minimum: { TWD: 2000, HKD: 400 }
+      };
+    }
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch (e) {
+    console.error('Currency config error:', e.message);
+    return {
+      currency: 'TWD',
+      exchange_rates: { TWD_to_HKD: 0.2, HKD_to_TWD: 5 },
+      symbols: { TWD: 'NT$', HKD: 'HK$' },
+      stripe_minimum: { TWD: 2000, HKD: 400 }
+    };
+  }
+}
+
+// Convert price from TWD (database) to display currency
+function convertPrice(twdPrice, targetCurrency) {
+  const config = getCurrencyConfig();
+  if (targetCurrency === 'TWD') {
+    return parseFloat(twdPrice);
+  }
+  // Convert TWD to HKD
+  if (targetCurrency === 'HKD') {
+    return parseFloat(twdPrice) * config.exchange_rates.TWD_to_HKD;
+  }
+  // Fallback to original price
+  return parseFloat(twdPrice);
+}
+
+// Convert price from display currency back to TWD (for database)
+function convertToTWD(displayPrice, sourceCurrency) {
+  const config = getCurrencyConfig();
+  if (sourceCurrency === 'TWD' || config.currency === 'TWD') {
+    return parseFloat(displayPrice);
+  }
+  // Convert HKD to TWD
+  return parseFloat(displayPrice) * config.exchange_rates.HKD_to_TWD;
+}
+
 // Stripe configuration
 let stripeInstance = null;
 function getStripeClient() {
@@ -87,15 +136,23 @@ app.get('/paypal/config', async (req, res) => {
 // Create PayPal order
 app.post('/paypal/create-order', playerAuth, async (req, res) => {
   const uid = req.user.uid;
+  const { currency: userCurrency } = req.body; // User selected currency from frontend
   const cart = (await pool.query('SELECT * FROM cart_items WHERE user_id=$1', [uid])).rows;
   if (!cart || cart.length === 0) return res.status(400).json({ error: 'Empty cart' });
   
-  // Calculate total from cart
-  let total = 0;
+  const currencyConfig = getCurrencyConfig();
+  // Use user's selected currency or fallback to config default
+  const currency = userCurrency || currencyConfig.currency;
+  
+  // Calculate total from cart (prices stored in TWD)
+  let totalTWD = 0;
   for (const item of cart) {
     const product = (await pool.query('SELECT price FROM products WHERE id=$1', [item.product_id])).rows[0];
-    if (product) total += parseFloat(product.price) * item.quantity;
+    if (product) totalTWD += parseFloat(product.price) * item.quantity;
   }
+  
+  // Convert to display currency
+  const displayTotal = convertPrice(totalTWD, currency);
   
   const client = getPayPalClient();
   if (!client) return res.status(500).json({ error: 'PayPal not configured' });
@@ -106,8 +163,8 @@ app.post('/paypal/create-order', playerAuth, async (req, res) => {
     intent: 'CAPTURE',
     purchase_units: [{
       amount: {
-        currency_code: 'TWD',
-        value: Math.round(total).toString()
+        currency_code: currency,
+        value: Math.round(displayTotal).toString()
       }
     }]
   });
@@ -217,45 +274,95 @@ app.get('/stripe/config', async (req, res) => {
   }
 });
 
+// Get currency configuration
+app.get('/currency/config', async (req, res) => {
+  const config = getCurrencyConfig();
+  res.json({
+    defaultCurrency: config.currency,
+    supportedCurrencies: config.supported_currencies || ['TWD', 'HKD'],
+    symbols: config.symbols,
+    exchangeRates: config.exchange_rates,
+    stripeMinimum: config.stripe_minimum
+  });
+});
+
 // Create Stripe payment intent
 app.post('/stripe/create-payment-intent', playerAuth, async (req, res) => {
   const uid = req.user.uid;
+  const { currency: userCurrency } = req.body; // User selected currency from frontend
   const cart = (await pool.query('SELECT * FROM cart_items WHERE user_id=$1', [uid])).rows;
   if (!cart || cart.length === 0) return res.status(400).json({ error: 'Empty cart' });
   
-  // Calculate total from cart
-  let total = 0;
+  const currencyConfig = getCurrencyConfig();
+  // Use user's selected currency or fallback to config default
+  const selectedCurrency = userCurrency || currencyConfig.currency;
+  const currency = selectedCurrency.toLowerCase();
+  const currencySymbol = currencyConfig.symbols[selectedCurrency];
+  
+  // Calculate total from cart (prices stored in TWD)
+  let totalTWD = 0;
   for (const item of cart) {
     const product = (await pool.query('SELECT price FROM products WHERE id=$1', [item.product_id])).rows[0];
-    if (product) total += parseFloat(product.price) * item.quantity;
+    if (product) totalTWD += parseFloat(product.price) * item.quantity;
   }
   
-  // Stripe TWD: Despite being a zero-decimal currency in real life,
-  // Stripe API treats TWD with 2 decimal places (100 units = 1 TWD)
-  // Due to currency conversion requirements, Stripe requires minimum amount
-  // that converts to at least 400 HKD cents (4.00 HKD)
-  // Safe minimum: 20 TWD = 2000 units (ensures conversion >= 4.00 HKD)
-  const amount = Math.round(total * 100); // Convert TWD to Stripe's TWD units
-  if (amount < 2000) { // 20 TWD minimum (safe buffer for currency conversion)
+  // Convert to selected currency for payment
+  const amountInCurrency = convertPrice(totalTWD, selectedCurrency);
+  
+  console.log(`[Stripe Payment Intent] Selected currency: ${selectedCurrency}`);
+  console.log(`[Stripe Payment Intent] Total in TWD: ${totalTWD}`);
+  console.log(`[Stripe Payment Intent] Amount in ${selectedCurrency}: ${amountInCurrency}`);
+  
+  // Calculate Stripe amount (in smallest currency unit)
+  // Both TWD and HKD use 2 decimal places in Stripe API (100 units = 1 currency)
+  const amount = Math.round(amountInCurrency * 100);
+  
+  console.log(`[Stripe Payment Intent] Stripe amount (smallest unit): ${amount}`);
+  
+  // Check minimum amount based on currency
+  const minimumAmount = currencyConfig.stripe_minimum[selectedCurrency];
+  if (amount < minimumAmount) {
+    const minDisplay = minimumAmount / 100;
     return res.status(400).json({ 
-      error: 'Stripe 最低金額為 NT$20，您的購物車總額為 NT$' + total,
-      minimumAmount: 20,
-      currentAmount: total
+      error: `Stripe 最低金額為 ${currencySymbol}${minDisplay}，您的購物車總額為 ${currencySymbol}${displayTotal.toFixed(2)}`,
+      minimumAmount: minDisplay,
+      currentAmount: displayTotal
     });
   }
   
   const stripe = getStripeClient();
   if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
   
+  // Read payment method types from config and filter based on currency
+  let paymentMethodTypes = ['card']; // Default to card only
+  try {
+    const configPath = path.join(__dirname, 'stripe-config.json');
+    const configData = fs.readFileSync(configPath, 'utf8');
+    const config = JSON.parse(configData);
+    if (config.payment_method_types && Array.isArray(config.payment_method_types)) {
+      paymentMethodTypes = config.payment_method_types;
+      
+      // Filter payment methods based on currency support
+      // Alipay and WeChat Pay do NOT support TWD
+      if (selectedCurrency === 'TWD') {
+        paymentMethodTypes = paymentMethodTypes.filter(method => 
+          method !== 'alipay' && method !== 'wechat_pay'
+        );
+        console.log(`TWD currency: filtered payment methods to ${paymentMethodTypes.join(', ')}`);
+      }
+    }
+  } catch (err) {
+    console.warn('Could not read payment_method_types from stripe-config.json, using default [card]');
+  }
+  
   try {
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount, // TWD in Stripe format (100 units = 1 TWD)
-      currency: 'twd',
-      automatic_payment_methods: {
-        enabled: true,
-      },
+      amount: amount,
+      currency: currency,
+      payment_method_types: paymentMethodTypes,
       metadata: {
         user_id: uid.toString(),
+        original_twd_amount: totalTWD.toString(),
       }
     });
     
@@ -265,11 +372,29 @@ app.post('/stripe/create-payment-intent', playerAuth, async (req, res) => {
     
     // Handle amount_too_small error gracefully
     if (e.code === 'amount_too_small') {
+      const minDisplay = minimumAmount / 100;
       return res.status(400).json({ 
-        error: 'Stripe 最低金額為 NT$20（由於匯率轉換限制），您的購物車總額為 NT$' + total + '。請使用手動上傳或 PayPal 付款。',
-        minimumAmount: 20,
-        currentAmount: total
+        error: `Stripe 最低金額為 ${currencySymbol}${minDisplay}（由於匯率轉換限制），您的購物車總額為 ${currencySymbol}${amountInCurrency.toFixed(2)}。請使用手動上傳或 PayPal 付款。`,
+        minimumAmount: minDisplay,
+        currentAmount: amountInCurrency
       });
+    }
+    
+    // Handle unsupported payment method errors
+    if (e.code === 'parameter_invalid_empty' || e.message?.includes('payment_method_types')) {
+      console.warn('Some payment methods not available, falling back to card only');
+      // Retry with card only
+      try {
+        const fallbackIntent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: 'twd',
+          payment_method_types: ['card'],
+          metadata: { user_id: uid.toString() }
+        });
+        return res.json({ clientSecret: fallbackIntent.client_secret });
+      } catch (fallbackError) {
+        console.error('Fallback payment intent creation failed:', fallbackError);
+      }
     }
     
     // Other Stripe errors

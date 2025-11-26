@@ -24,6 +24,9 @@ api/paypal-config.json
 # Stripe configuration (contains sensitive keys)
 api/stripe-config.json
 
+# Currency configuration
+api/currency-config.json
+
 # Database data (Docker volume)
 db_data/
 

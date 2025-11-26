@@ -1,0 +1,17 @@
+{
+  "currency": "TWD",
+  "supported_currencies": ["TWD", "HKD"],
+  "exchange_rates": {
+    "TWD_to_HKD": 0.2,
+    "HKD_to_TWD": 5
+  },
+  "symbols": {
+    "TWD": "NT$",
+    "HKD": "HK$"
+  },
+  "stripe_minimum": {
+    "TWD": 2000,
+    "HKD": 400
+  },
+  "comment": "currency 為後端預設貨幣，用戶可在前端切換。HKD 支援 Alipay 和 WeChat Pay，TWD 僅支援信用卡和 PayPal"
+}
