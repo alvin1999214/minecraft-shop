@@ -17,8 +17,14 @@ function StripePaymentForm({ discordId, onSuccess, onError }) {
 
     setIsProcessing(true);
     try {
+      // Save discordId for redirect callback
+      localStorage.setItem('temp_discord_id', discordId);
+      
       const { error, paymentIntent } = await stripe.confirmPayment({
         elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/orders`,
+        },
         redirect: 'if_required',
       });
 
@@ -28,6 +34,8 @@ function StripePaymentForm({ discordId, onSuccess, onError }) {
         // Confirm payment with backend
         const response = await confirmStripePayment(paymentIntent.id, discordId);
         onSuccess(response.data);
+        // Clear temp discord id
+        localStorage.removeItem('temp_discord_id');
       }
     } catch (err) {
       onError(err.message || 'Payment failed');

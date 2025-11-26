@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { getOrders } from '../services/api';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { getOrders, confirmStripePayment } from '../services/api';
 
 export default function OrderHistoryPage(){
   const [orders,setOrders]=useState([]);
@@ -8,6 +8,36 @@ export default function OrderHistoryPage(){
   const [authorized,setAuthorized]=useState(false);
   const [error,setError]=useState('');
   const navigate=useNavigate();
+  const [searchParams] = useSearchParams();
+  
+  // Handle Stripe redirect
+  useEffect(() => {
+    const paymentIntent = searchParams.get('payment_intent');
+    const paymentIntentClientSecret = searchParams.get('payment_intent_client_secret');
+    const redirectStatus = searchParams.get('redirect_status');
+    
+    if (paymentIntent && redirectStatus === 'succeeded') {
+      // Get discordId from localStorage or prompt user
+      const discordId = localStorage.getItem('temp_discord_id') || '';
+      
+      confirmStripePayment(paymentIntent, discordId)
+        .then(() => {
+          alert('支付寶/微信支付成功！訂單已自動批准');
+          // Clear temp discord id
+          localStorage.removeItem('temp_discord_id');
+          // Remove query params from URL
+          window.history.replaceState({}, '', '/orders');
+        })
+        .catch(err => {
+          console.error('Error confirming payment:', err);
+          alert('付款確認失敗，請聯繫客服');
+        });
+    } else if (paymentIntent && redirectStatus === 'failed') {
+      alert('付款失敗，請重試');
+      window.history.replaceState({}, '', '/orders');
+    }
+  }, [searchParams]);
+  
   useEffect(()=>{(async()=>{
     const isAdmin = localStorage.getItem('admin_token');
     if(isAdmin) {
