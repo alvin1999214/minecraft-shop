@@ -290,38 +290,94 @@ export default function CheckoutPage(){
         <h3 style={{marginBottom:24}}>選擇付款方式</h3>
         
         <div style={{marginBottom:32}}>
-          <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
-            <button 
-              className={`btn ${paymentMethod === 'manual' ? '' : 'outlined'}`}
-              onClick={()=>setPaymentMethod('manual')}
-              type="button"
-              style={{flex:1,minWidth:150}}
-            >
-              上傳付款證明
-            </button>
+          <div style={{display:'grid',gap:16,marginBottom:24}}>
+            {/* PayPal Payment */}
             {paypalClientId && (
-              <button 
-                className={`btn ${paymentMethod === 'paypal' ? '' : 'outlined'}`}
+              <div 
                 onClick={()=>setPaymentMethod('paypal')}
-                type="button"
-                style={{flex:1,minWidth:150}}
+                style={{
+                  padding:20,
+                  border: paymentMethod === 'paypal' ? '2px solid #667eea' : '2px solid #e5e7eb',
+                  borderRadius:12,
+                  cursor:'pointer',
+                  transition:'all 0.2s',
+                  background: paymentMethod === 'paypal' ? '#f0f4ff' : 'white'
+                }}
               >
-                PayPal付款
-              </button>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+                  <input 
+                    type="radio" 
+                    checked={paymentMethod === 'paypal'} 
+                    onChange={()=>setPaymentMethod('paypal')}
+                    style={{width:20,height:20}}
+                  />
+                  <h4 style={{margin:0,fontSize:18,fontWeight:700}}>PayPal付款（24小時）</h4>
+                </div>
+                <p style={{margin:'0 0 0 32px',fontSize:14,color:'#6b7280',lineHeight:1.6}}>
+                  使用PayPal付款，24小時自動發貨
+                </p>
+              </div>
             )}
+            
+            {/* Stripe Payment */}
             {stripePromise && (
-              <button 
-                className={`btn ${paymentMethod === 'stripe' ? '' : 'outlined'}`}
+              <div 
                 onClick={()=>{
                   setPaymentMethod('stripe');
                   setStripeClientSecret(null); // Reset to trigger new payment intent
                 }}
-                type="button"
-                style={{flex:1,minWidth:150}}
+                style={{
+                  padding:20,
+                  border: paymentMethod === 'stripe' ? '2px solid #667eea' : '2px solid #e5e7eb',
+                  borderRadius:12,
+                  cursor:'pointer',
+                  transition:'all 0.2s',
+                  background: paymentMethod === 'stripe' ? '#f0f4ff' : 'white'
+                }}
               >
-                Stripe付款
-              </button>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+                  <input 
+                    type="radio" 
+                    checked={paymentMethod === 'stripe'} 
+                    onChange={()=>{
+                      setPaymentMethod('stripe');
+                      setStripeClientSecret(null);
+                    }}
+                    style={{width:20,height:20}}
+                  />
+                  <h4 style={{margin:0,fontSize:18,fontWeight:700}}>Stripe付款（24小時）</h4>
+                </div>
+                <p style={{margin:'0 0 0 32px',fontSize:14,color:'#6b7280',lineHeight:1.6}}>
+                  使用Stripe付款，24小時自動發貨，支援信用卡、Apple Pay、Google Pay付款；香港地區支援微信支付、支付寶
+                </p>
+              </div>
             )}
+            
+            {/* Manual Payment */}
+            <div 
+              onClick={()=>setPaymentMethod('manual')}
+              style={{
+                padding:20,
+                border: paymentMethod === 'manual' ? '2px solid #667eea' : '2px solid #e5e7eb',
+                borderRadius:12,
+                cursor:'pointer',
+                transition:'all 0.2s',
+                background: paymentMethod === 'manual' ? '#f0f4ff' : 'white'
+              }}
+            >
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+                <input 
+                  type="radio" 
+                  checked={paymentMethod === 'manual'} 
+                  onChange={()=>setPaymentMethod('manual')}
+                  style={{width:20,height:20}}
+                />
+                <h4 style={{margin:0,fontSize:18,fontWeight:700}}>其他支付方式</h4>
+              </div>
+              <p style={{margin:'0 0 0 32px',fontSize:14,color:'#6b7280',lineHeight:1.6}}>
+                請聯絡管理員使用其他付款方式，付款後提供付款證明，等待管理員核實
+              </p>
+            </div>
           </div>
         </div>
 
