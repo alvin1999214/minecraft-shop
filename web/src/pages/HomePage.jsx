@@ -11,7 +11,7 @@ const ProductCard = ({ product }) => (
       />
       <div style={{padding:'0 8px'}}>
         <div style={{color:product.stock>0?'var(--success)':'var(--danger)',fontSize:12,fontWeight:500,marginBottom:4,textTransform:'uppercase',letterSpacing:'0.5px'}}>
-          {product.stock>0?'貨餘充足':'缺貨'}
+          {product.stock>0?'庫存充足':'缺貨'}
         </div>
         <h3 style={{margin:'0 0 4px 0',fontSize:21,fontWeight:600}}>{product.name}</h3>
         <div style={{fontSize:14,color:'var(--text-secondary)',marginBottom:8}}>
@@ -50,7 +50,7 @@ export default function HomePage(){
         </div>
         <div className="hero-image">
           <img 
-            src="https://xboxwire.thesourcemediaassets.com/sites/2/2024/05/Hero-8c18da7c19a1a8811ddb.jpg?w=1200&h=600&fit=crop" 
+            src="https://truth.bahamut.com.tw/s01/202506/forum/18673/b82b7255d139cd812170244abc47589d.JPG" 
             alt="Minecraft"
           />
         </div>
