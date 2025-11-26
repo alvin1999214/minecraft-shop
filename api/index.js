@@ -232,13 +232,14 @@ app.post('/stripe/create-payment-intent', playerAuth, async (req, res) => {
   
   // Stripe TWD: Despite being a zero-decimal currency in real life,
   // Stripe API treats TWD with 2 decimal places (100 units = 1 TWD)
-  // Minimum: 16 TWD = 1600 units (approximately USD $0.50)
+  // Due to currency conversion requirements, Stripe requires minimum amount
+  // that converts to at least 400 HKD cents (4.00 HKD)
+  // Safe minimum: 20 TWD = 2000 units (ensures conversion >= 4.00 HKD)
   const amount = Math.round(total * 100); // Convert TWD to Stripe's TWD units
-  console.log('Stripe PaymentIntent - Total:', total, 'TWD, Amount:', amount, 'units (Stripe format)');
-  if (amount < 1600) { // 16 TWD minimum
+  if (amount < 2000) { // 20 TWD minimum (safe buffer for currency conversion)
     return res.status(400).json({ 
-      error: 'Stripe 最低金額為 NT$16 (約 USD $0.50)，您的購物車總額為 NT$' + total,
-      minimumAmount: 16,
+      error: 'Stripe 最低金額為 NT$20，您的購物車總額為 NT$' + total,
+      minimumAmount: 20,
       currentAmount: total
     });
   }
@@ -247,7 +248,6 @@ app.post('/stripe/create-payment-intent', playerAuth, async (req, res) => {
   if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
   
   try {
-    console.log('Creating Stripe PaymentIntent with amount:', amount, 'currency: twd');
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amount, // TWD in Stripe format (100 units = 1 TWD)
       currency: 'twd',
@@ -262,9 +262,20 @@ app.post('/stripe/create-payment-intent', playerAuth, async (req, res) => {
     res.json({ clientSecret: paymentIntent.client_secret });
   } catch (e) {
     console.error('Stripe payment intent creation error:', e);
+    
+    // Handle amount_too_small error gracefully
+    if (e.code === 'amount_too_small') {
+      return res.status(400).json({ 
+        error: 'Stripe 最低金額為 NT$20（由於匯率轉換限制），您的購物車總額為 NT$' + total + '。請使用手動上傳或 PayPal 付款。',
+        minimumAmount: 20,
+        currentAmount: total
+      });
+    }
+    
+    // Other Stripe errors
     res.status(500).json({ 
-      error: e.message || 'Failed to create Stripe payment intent',
-      details: e.type === 'StripeInvalidRequestError' ? e.message : undefined
+      error: 'Stripe 付款處理失敗，請嘗試其他付款方式或聯繫客服',
+      technicalDetails: e.type === 'StripeInvalidRequestError' ? e.message : undefined
     });
   }
 });
