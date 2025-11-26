@@ -30,11 +30,11 @@ export default function CartPage(){
     }finally{setLoading(false)}
   })()},[])
   const total=()=>items.reduce((s,i)=>s+(i.product.price*i.quantity),0).toFixed(2)
-  const handleRemove=async(id)=>{
+  const handleRemove=async(cartItemId)=>{
     if(!confirm('確定要移除嗎？'))return;
     try{
-      await removeFromCart(id);
-      setItems(items.filter(it=>it.productId!==id))
+      await removeFromCart(cartItemId);
+      setItems(items.filter(it=>it.id!==cartItemId))
     }catch(e){
       console.error(e);
       if(e.response && (e.response.status===401||e.response.status===403)){
@@ -98,7 +98,7 @@ export default function CartPage(){
                       />
                       <button 
                         className="btn ghost" 
-                        onClick={()=>handleRemove(it.productId)}
+                        onClick={()=>handleRemove(it.id)}
                         style={{fontSize:14}}
                       >
                         移除

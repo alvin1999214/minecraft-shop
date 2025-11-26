@@ -1,0 +1,4 @@
+{
+  "secret_key": "sk_test_your_stripe_secret_key_here",
+  "publishable_key": "pk_test_your_stripe_publishable_key_here"
+}

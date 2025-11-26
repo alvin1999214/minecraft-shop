@@ -26,7 +26,7 @@ export const getProduct = (id)=>apiClient.get(`/products/${id}`);
 export const getCart = ()=>apiClient.get('/cart');
 export const addToCart = (productId,quantity)=>apiClient.post('/cart',{productId,quantity});
 export const updateCartItem = (cartItemId,quantity)=>apiClient.put(`/cart/${cartItemId}`,{quantity});
-export const removeFromCart = (productId)=>apiClient.delete(`/cart/${productId}`);
+export const removeFromCart = (cartItemId)=>apiClient.delete(`/cart/${cartItemId}`);
 export const checkout = (payload)=>apiClient.post('/orders/checkout',payload);
 export const getOrders = ()=>apiClient.get('/orders');
 export const getOrder = (id)=>apiClient.get(`/orders/${id}`);
@@ -47,5 +47,10 @@ export const toggleProductStatus = (id, active)=>apiClient.put(`/products/${id}`
 export const getPayPalConfig = ()=>apiClient.get('/paypal/config');
 export const createPayPalOrder = ()=>apiClient.post('/paypal/create-order');
 export const capturePayPalOrder = (orderID, discordId)=>apiClient.post('/paypal/capture-order', {orderID, discordId});
+
+// Stripe API
+export const getStripeConfig = ()=>apiClient.get('/stripe/config');
+export const createStripePaymentIntent = ()=>apiClient.post('/stripe/create-payment-intent');
+export const confirmStripePayment = (paymentIntentId, discordId)=>apiClient.post('/stripe/confirm-payment', {paymentIntentId, discordId});
 
 export default apiClient;

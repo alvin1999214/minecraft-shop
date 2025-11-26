@@ -21,6 +21,9 @@ api/uploads/*
 # PayPal configuration (contains sensitive keys)
 api/paypal-config.json
 
+# Stripe configuration (contains sensitive keys)
+api/stripe-config.json
+
 # Database data (Docker volume)
 db_data/
 

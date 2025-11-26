@@ -27,6 +27,37 @@ const upload = multer({
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Stripe configuration
+let stripeInstance = null;
+function getStripeClient() {
+  try {
+    if (stripeInstance) return stripeInstance;
+    const configPath = path.join(__dirname, 'stripe-config.json');
+    if (!fs.existsSync(configPath)) {
+      console.log('Stripe config file not found');
+      return null;
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    
+    // Check if keys are still placeholders
+    if (!config.secret_key || 
+        config.secret_key.includes('your_stripe_secret_key_here') ||
+        config.secret_key === 'sk_test_' ||
+        config.secret_key.length < 20) {
+      console.log('Stripe not configured: Invalid secret key in stripe-config.json');
+      return null;
+    }
+    
+    const stripe = require('stripe')(config.secret_key);
+    stripeInstance = stripe;
+    console.log('Stripe initialized successfully');
+    return stripe;
+  } catch (e) {
+    console.error('Stripe configuration error:', e.message);
+    return null;
+  }
+}
+
 // PayPal configuration
 function getPayPalClient() {
   try {
@@ -162,6 +193,151 @@ app.post('/paypal/capture-order', playerAuth, async (req, res) => {
   } catch (e) {
     console.error('PayPal capture error:', e);
     res.status(500).json({ error: 'Failed to capture PayPal payment' });
+  }
+});
+
+// Get Stripe publishable key for frontend
+app.get('/stripe/config', async (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'stripe-config.json');
+    if (!fs.existsSync(configPath)) return res.status(404).json({ publishableKey: null });
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    
+    // Check if publishable key is valid
+    if (!config.publishable_key || 
+        config.publishable_key.includes('your_stripe_publishable_key_here') ||
+        config.publishable_key === 'pk_test_' ||
+        config.publishable_key.length < 20) {
+      return res.status(404).json({ publishableKey: null });
+    }
+    
+    res.json({ publishableKey: config.publishable_key });
+  } catch (e) {
+    res.status(500).json({ error: 'Stripe not configured' });
+  }
+});
+
+// Create Stripe payment intent
+app.post('/stripe/create-payment-intent', playerAuth, async (req, res) => {
+  const uid = req.user.uid;
+  const cart = (await pool.query('SELECT * FROM cart_items WHERE user_id=$1', [uid])).rows;
+  if (!cart || cart.length === 0) return res.status(400).json({ error: 'Empty cart' });
+  
+  // Calculate total from cart
+  let total = 0;
+  for (const item of cart) {
+    const product = (await pool.query('SELECT price FROM products WHERE id=$1', [item.product_id])).rows[0];
+    if (product) total += parseFloat(product.price) * item.quantity;
+  }
+  
+  // Stripe TWD: Despite being a zero-decimal currency in real life,
+  // Stripe API treats TWD with 2 decimal places (100 units = 1 TWD)
+  // Minimum: 16 TWD = 1600 units (approximately USD $0.50)
+  const amount = Math.round(total * 100); // Convert TWD to Stripe's TWD units
+  console.log('Stripe PaymentIntent - Total:', total, 'TWD, Amount:', amount, 'units (Stripe format)');
+  if (amount < 1600) { // 16 TWD minimum
+    return res.status(400).json({ 
+      error: 'Stripe 最低金額為 NT$16 (約 USD $0.50)，您的購物車總額為 NT$' + total,
+      minimumAmount: 16,
+      currentAmount: total
+    });
+  }
+  
+  const stripe = getStripeClient();
+  if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+  
+  try {
+    console.log('Creating Stripe PaymentIntent with amount:', amount, 'currency: twd');
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount, // TWD in Stripe format (100 units = 1 TWD)
+      currency: 'twd',
+      automatic_payment_methods: {
+        enabled: true,
+      },
+      metadata: {
+        user_id: uid.toString(),
+      }
+    });
+    
+    res.json({ clientSecret: paymentIntent.client_secret });
+  } catch (e) {
+    console.error('Stripe payment intent creation error:', e);
+    res.status(500).json({ 
+      error: e.message || 'Failed to create Stripe payment intent',
+      details: e.type === 'StripeInvalidRequestError' ? e.message : undefined
+    });
+  }
+});
+
+// Confirm Stripe payment and create orders
+app.post('/stripe/confirm-payment', playerAuth, async (req, res) => {
+  const { paymentIntentId, discordId } = req.body;
+  const uid = req.user.uid;
+  const playerid = req.user.playerid;
+  
+  if (!paymentIntentId) return res.status(400).json({ error: 'Missing paymentIntentId' });
+  
+  const stripe = getStripeClient();
+  if (!stripe) return res.status(500).json({ error: 'Stripe not configured' });
+  
+  try {
+    // Retrieve payment intent to verify it's succeeded
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({ error: 'Payment not succeeded' });
+    }
+    
+    // Get cart items
+    const cart = (await pool.query('SELECT * FROM cart_items WHERE user_id=$1', [uid])).rows;
+    if (!cart || cart.length === 0) return res.status(400).json({ error: 'Empty cart' });
+    
+    // Generate unique order group ID for this checkout session
+    const orderGroupId = crypto.randomUUID();
+    
+    const created = [];
+    try {
+      // Create orders and auto-approve since Stripe payment is confirmed
+      for (const it of cart) {
+        const product = (await pool.query('SELECT command, price FROM products WHERE id=$1', [it.product_id])).rows[0];
+        
+        // Create one order record for each quantity
+        const quantity = parseInt(it.quantity) || 1;
+        for (let i = 0; i < quantity; i++) {
+          // Create order with Stripe payment method
+          const r = await pool.query(
+            'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, status, payment_method, paypal_order_id, created_at, approved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),now()) RETURNING *',
+            [orderGroupId, uid, playerid, discordId || null, it.product_id, 'approved', 'stripe', paymentIntentId]
+          );
+          
+          const order = r.rows[0];
+          created.push(order);
+          
+          // Execute RCON command automatically
+          if (product && product.command) {
+            const cmd = product.command.replace(/\{playerid\}/g, playerid);
+            try {
+              const resp = await runRconCommand(cmd);
+              await pool.query('UPDATE orders SET rcon_result=$1 WHERE id=$2', [resp ? String(resp) : null, order.id]);
+            } catch (e) {
+              console.error('RCON execution error for order', order.id, e);
+              // Continue even if RCON fails
+            }
+          }
+        }
+      }
+      
+      // Clear cart
+      await pool.query('DELETE FROM cart_items WHERE user_id=$1', [uid]);
+      
+      res.json({ success: true, orders: created, id: created[0] ? created[0].id : null, orderGroupId });
+    } catch (e) {
+      console.error('Order creation failed', e);
+      res.status(500).json({ error: 'Order creation failed' });
+    }
+  } catch (e) {
+    console.error('Stripe confirm error:', e);
+    res.status(500).json({ error: 'Failed to confirm Stripe payment' });
   }
 });
 

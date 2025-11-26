@@ -1,6 +1,54 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getCart, checkout, uploadPaymentProof, getPayPalConfig, createPayPalOrder, capturePayPalOrder } from '../services/api';
+import { getCart, checkout, uploadPaymentProof, getPayPalConfig, createPayPalOrder, capturePayPalOrder, getStripeConfig, createStripePaymentIntent, confirmStripePayment } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+
+// Stripe payment form component
+function StripePaymentForm({ discordId, onSuccess, onError }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsProcessing(true);
+    try {
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        redirect: 'if_required',
+      });
+
+      if (error) {
+        onError(error.message);
+      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+        // Confirm payment with backend
+        const response = await confirmStripePayment(paymentIntent.id, discordId);
+        onSuccess(response.data);
+      }
+    } catch (err) {
+      onError(err.message || 'Payment failed');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <PaymentElement />
+      <button
+        type="submit"
+        disabled={!stripe || isProcessing}
+        className="btn large"
+        style={{width: '100%', marginTop: 24}}
+      >
+        {isProcessing ? '處理中...' : '確認付款'}
+      </button>
+    </form>
+  );
+}
 
 export default function CheckoutPage(){
   const [cart,setCart]=useState([]);
@@ -9,9 +57,11 @@ export default function CheckoutPage(){
   const [form,setForm]=useState({playerId:'',discordId:''});
   const [proof, setProof] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('manual'); // 'manual' or 'paypal'
+  const [paymentMethod, setPaymentMethod] = useState('manual'); // 'manual', 'paypal', or 'stripe'
   const [paypalClientId, setPaypalClientId] = useState(null);
   const [paypalLoaded, setPaypalLoaded] = useState(false);
+  const [stripePromise, setStripePromise] = useState(null);
+  const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const discordIdRef = useRef('');
   const navigate=useNavigate();
   
@@ -33,6 +83,17 @@ export default function CheckoutPage(){
         }
       } catch (e) {
         console.log('PayPal not configured');
+      }
+      
+      // Load Stripe config
+      try {
+        const config = await getStripeConfig();
+        if (config.data && config.data.publishableKey) {
+          const stripe = await loadStripe(config.data.publishableKey);
+          setStripePromise(stripe);
+        }
+      } catch (e) {
+        console.log('Stripe not configured');
       }
     }catch(e){
       console.error(e);
@@ -88,6 +149,32 @@ export default function CheckoutPage(){
     // Update ref when form changes
     discordIdRef.current = form.discordId;
   }, [form.discordId]);
+
+  // Create Stripe payment intent when stripe method is selected
+  useEffect(() => {
+    if (paymentMethod === 'stripe' && stripePromise && !stripeClientSecret) {
+      createStripePaymentIntent()
+        .then(response => {
+          setStripeClientSecret(response.data.clientSecret);
+        })
+        .catch(error => {
+          console.error('Error creating Stripe payment intent:', error);
+          const errorMsg = error.response?.data?.error || '創建Stripe付款失敗';
+          alert(errorMsg);
+          // Switch back to manual payment if Stripe fails
+          setPaymentMethod('manual');
+        });
+    }
+  }, [paymentMethod, stripePromise, stripeClientSecret]);
+
+  const handleStripeSuccess = (data) => {
+    alert('Stripe付款成功！訂單已自動批准');
+    navigate('/orders');
+  };
+
+  const handleStripeError = (errorMessage) => {
+    alert('Stripe付款失敗: ' + errorMessage);
+  };
 
   useEffect(() => {
     if (paymentMethod === 'paypal' && paypalLoaded && window.paypal) {
@@ -174,12 +261,12 @@ export default function CheckoutPage(){
         <h3 style={{marginBottom:24}}>選擇付款方式</h3>
         
         <div style={{marginBottom:32}}>
-          <div style={{display:'flex',gap:16,marginBottom:24}}>
+          <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
             <button 
               className={`btn ${paymentMethod === 'manual' ? '' : 'outlined'}`}
               onClick={()=>setPaymentMethod('manual')}
               type="button"
-              style={{flex:1}}
+              style={{flex:1,minWidth:150}}
             >
               上傳付款證明
             </button>
@@ -188,9 +275,22 @@ export default function CheckoutPage(){
                 className={`btn ${paymentMethod === 'paypal' ? '' : 'outlined'}`}
                 onClick={()=>setPaymentMethod('paypal')}
                 type="button"
-                style={{flex:1}}
+                style={{flex:1,minWidth:150}}
               >
                 PayPal付款
+              </button>
+            )}
+            {stripePromise && (
+              <button 
+                className={`btn ${paymentMethod === 'stripe' ? '' : 'outlined'}`}
+                onClick={()=>{
+                  setPaymentMethod('stripe');
+                  setStripeClientSecret(null); // Reset to trigger new payment intent
+                }}
+                type="button"
+                style={{flex:1,minWidth:150}}
+              >
+                Stripe付款
               </button>
             )}
           </div>
@@ -265,7 +365,7 @@ export default function CheckoutPage(){
               {isSubmitting ? '處理中...' : '確認下單'}
             </button>
           </form>
-        ) : (
+        ) : paymentMethod === 'paypal' ? (
           <div>
             <h3 style={{marginBottom:24}}>PayPal付款</h3>
             <p style={{marginBottom:24,color:'var(--text-secondary)'}}>
@@ -280,7 +380,28 @@ export default function CheckoutPage(){
               </div>
             )}
           </div>
-        )}
+        ) : paymentMethod === 'stripe' ? (
+          <div>
+            <h3 style={{marginBottom:24}}>Stripe付款</h3>
+            <p style={{marginBottom:24,color:'var(--text-secondary)'}}>
+              使用信用卡/金融卡付款後，訂單將自動批准並發放商品
+            </p>
+            {stripeClientSecret && stripePromise ? (
+              <Elements stripe={stripePromise} options={{clientSecret: stripeClientSecret}}>
+                <StripePaymentForm 
+                  discordId={form.discordId}
+                  onSuccess={handleStripeSuccess}
+                  onError={handleStripeError}
+                />
+              </Elements>
+            ) : (
+              <div style={{textAlign:'center',padding:48}}>
+                <div className="loading-spinner"></div>
+                <p style={{marginTop:16,color:'var(--text-secondary)'}}>載入Stripe...</p>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </section>
   )
