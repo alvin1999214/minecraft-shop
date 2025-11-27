@@ -107,6 +107,79 @@ function getStripeClient() {
   }
 }
 
+// ECPay configuration
+function getECPayConfig() {
+  try {
+    const configPath = path.join(__dirname, 'ecpay-config.json');
+    if (!fs.existsSync(configPath)) {
+      console.log('ECPay config file not found');
+      return null;
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return config;
+  } catch (e) {
+    console.error('ECPay configuration error:', e.message);
+    return null;
+  }
+}
+
+// ECPay helper functions
+function generateECPayCheckMac(params, hashKey, hashIv) {
+  // Sort parameters by key alphabetically (case-sensitive)
+  const sortedKeys = Object.keys(params).sort();
+  
+  // Build parameter string (NO encoding at this stage)
+  const sortedParams = sortedKeys.map(key => {
+    return `${key}=${params[key]}`;
+  }).join('&');
+  
+  // Add HashKey and HashIV
+  let checkValue = `HashKey=${hashKey}&${sortedParams}&HashIV=${hashIv}`;
+  
+  console.log('[ECPay] Step 1 - Raw string:', checkValue);
+  
+  // URL encode the ENTIRE string once
+  checkValue = encodeURIComponent(checkValue)
+    .replace(/%2d/gi, '-')
+    .replace(/%5f/gi, '_')
+    .replace(/%2e/gi, '.')
+    .replace(/%21/gi, '!')
+    .replace(/%2a/gi, '*')
+    .replace(/%28/gi, '(')
+    .replace(/%29/gi, ')')
+    .replace(/%20/g, '+');
+  
+  console.log('[ECPay] Step 2 - After URL encode:', checkValue);
+  
+  // Convert to lowercase
+  checkValue = checkValue.toLowerCase();
+  
+  console.log('[ECPay] Step 3 - After lowercase:', checkValue);
+  
+  // Create SHA256 hash and convert to uppercase
+  const hash = crypto.createHash('sha256').update(checkValue).digest('hex').toUpperCase();
+  
+  console.log('[ECPay] Step 4 - Final CheckMacValue:', hash);
+  
+  return hash;
+}
+
+// Get ECPay config for frontend
+app.get('/ecpay/config', async (req, res) => {
+  try {
+    const config = getECPayConfig();
+    if (!config) {
+      return res.status(500).json({ error: 'ECPay not configured' });
+    }
+    res.json({ 
+      enabled: true,
+      test_mode: config.test_mode 
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'ECPay not configured' });
+  }
+});
+
 // PayPal configuration
 function getPayPalClient() {
   try {
@@ -474,6 +547,302 @@ app.post('/stripe/confirm-payment', playerAuth, async (req, res) => {
   } catch (e) {
     console.error('Stripe confirm error:', e);
     res.status(500).json({ error: 'Failed to confirm Stripe payment' });
+  }
+});
+
+// Create ECPay payment (ATM or CVS)
+app.post('/ecpay/create-payment', playerAuth, async (req, res) => {
+  const uid = req.user.uid;
+  const playerid = req.user.playerid;
+  const { discordId, paymentType, currency: userCurrency } = req.body; // paymentType: 'ATM' or 'CVS'
+  
+  console.log('[ECPay] Create payment request:', { uid, playerid, paymentType, userCurrency });
+  
+  const config = getECPayConfig();
+  if (!config) {
+    console.error('[ECPay] Config not found');
+    return res.status(500).json({ error: 'ECPay not configured' });
+  }
+  
+  const cart = (await pool.query('SELECT c.*, p.name, p.price FROM cart_items c LEFT JOIN products p ON c.product_id = p.id WHERE c.user_id=$1', [uid])).rows;
+  if (!cart || cart.length === 0) {
+    console.error('[ECPay] Empty cart for user:', uid);
+    return res.status(400).json({ error: 'Empty cart' });
+  }
+  
+  console.log('[ECPay] Cart items:', cart.length);
+  
+  const currencyConfig = getCurrencyConfig();
+  const selectedCurrency = userCurrency || currencyConfig.currency;
+  
+  // Calculate total from cart (prices stored in TWD)
+  let totalTWD = 0;
+  for (const item of cart) {
+    if (item.price) totalTWD += parseFloat(item.price) * item.quantity;
+  }
+  
+  // Convert to selected currency for payment
+  const amountInCurrency = convertPrice(totalTWD, selectedCurrency);
+  const totalAmount = Math.round(amountInCurrency);
+  
+  // ECPay only supports TWD
+  if (selectedCurrency !== 'TWD') {
+    console.error('[ECPay] Unsupported currency:', selectedCurrency);
+    return res.status(400).json({ 
+      error: 'ECPay 僅支援新台幣（TWD）付款，請切換貨幣後再試' 
+    });
+  }
+  
+  console.log('[ECPay] Total amount:', totalAmount, 'TWD');
+  
+  // Generate unique order group ID
+  const orderGroupId = crypto.randomUUID();
+  const merchantTradeNo = `MC${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+  
+  try {
+    // Create pending orders in database
+    const created = [];
+    for (const it of cart) {
+      const quantity = parseInt(it.quantity) || 1;
+      for (let i = 0; i < quantity; i++) {
+        const r = await pool.query(
+          'INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, status, payment_method, paypal_order_id, created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()) RETURNING *',
+          [orderGroupId, uid, playerid, discordId || null, it.product_id, 'pending', paymentType === 'ATM' ? 'ecpay_atm' : 'ecpay_cvs', merchantTradeNo]
+        );
+        created.push(r.rows[0]);
+      }
+    }
+    
+    // Clear cart
+    await pool.query('DELETE FROM cart_items WHERE user_id=$1', [uid]);
+    
+    // Prepare ECPay payment form data
+    const baseUrl = config.test_mode 
+      ? 'https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5'
+      : 'https://payment.ecpay.com.tw/Cashier/AioCheckOut/V5';
+    
+    const tradeDesc = `Minecraft商城訂單 #${orderGroupId.substring(0, 8)}`;
+    const itemName = cart.map(it => it.name || 'Product').join('#');
+    
+    // Format date as YYYY/MM/DD HH:mm:ss for ECPay
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const merchantTradeDate = `${year}/${month}/${day} ${hours}:${minutes}:${seconds}`;
+    
+    const params = {
+      MerchantID: config.merchant_id,
+      MerchantTradeNo: merchantTradeNo,
+      MerchantTradeDate: merchantTradeDate,
+      PaymentType: 'aio',
+      TotalAmount: totalAmount,
+      TradeDesc: tradeDesc,
+      ItemName: itemName.substring(0, 200),
+      ReturnURL: config.order_result_url,
+      ChoosePayment: paymentType === 'ATM' ? 'ATM' : 'CVS',
+      ClientBackURL: config.return_url,
+      NeedExtraPaidInfo: 'Y',
+      EncryptType: 1
+    };
+    
+    // Add payment type specific params
+    if (paymentType === 'ATM') {
+      params.ExpireDate = 3; // 3 days to pay
+    } else if (paymentType === 'CVS') {
+      params.StoreExpireDate = 10080; // 7 days in minutes
+      params.Desc_1 = `訂單編號: ${orderGroupId.substring(0, 8)}`;
+      params.Desc_2 = `玩家: ${playerid}`;
+      params.Desc_3 = `總金額: NT$${totalAmount}`;
+    }
+    
+    // Generate CheckMacValue
+    const checkMacValue = generateECPayCheckMac(params, config.hash_key, config.hash_iv);
+    params.CheckMacValue = checkMacValue;
+    
+    console.log('[ECPay] Creating payment:', {
+      merchantTradeNo,
+      paymentType,
+      totalAmount,
+      orderGroupId: orderGroupId.substring(0, 8)
+    });
+    
+    // In test mode, automatically approve orders after a delay (simulating payment)
+    if (config.test_mode) {
+      console.log('[ECPay] Test mode: Will auto-approve orders after 10 seconds');
+      setTimeout(async () => {
+        try {
+          const ordersToApprove = await pool.query(
+            'SELECT * FROM orders WHERE paypal_order_id=$1',
+            [merchantTradeNo]
+          );
+          
+          if (ordersToApprove.rows.length > 0) {
+            console.log(`[ECPay] Auto-approving ${ordersToApprove.rows.length} orders for ${merchantTradeNo}`);
+            
+            for (const order of ordersToApprove.rows) {
+              await pool.query(
+                'UPDATE orders SET status=$1, approved_at=now() WHERE id=$2',
+                ['approved', order.id]
+              );
+              
+              // Execute RCON command
+              const product = (await pool.query('SELECT command FROM products WHERE id=$1', [order.product_id])).rows[0];
+              if (product && product.command) {
+                const cmd = product.command.replace(/\{playerid\}/g, order.playerid);
+                try {
+                  const resp = await runRconCommand(cmd);
+                  await pool.query('UPDATE orders SET rcon_result=$1 WHERE id=$2', [resp ? String(resp) : null, order.id]);
+                  console.log(`[ECPay] RCON executed for order ${order.id}`);
+                } catch (e) {
+                  console.error('[ECPay] RCON execution error for order', order.id, e);
+                }
+              }
+            }
+            console.log('[ECPay] Auto-approval completed');
+          }
+        } catch (e) {
+          console.error('[ECPay] Auto-approval error:', e);
+        }
+      }, 10000); // 10 seconds delay
+    }
+    
+    res.json({
+      success: true,
+      orderGroupId,
+      merchantTradeNo,
+      formData: params,
+      actionUrl: baseUrl,
+      testMode: config.test_mode
+    });
+    
+  } catch (e) {
+    console.error('ECPay order creation failed:', e);
+    res.status(500).json({ error: 'Failed to create ECPay payment', details: e.message });
+  }
+});
+
+// ECPay payment result callback
+app.post('/ecpay/order-result', express.urlencoded({ extended: true }), async (req, res) => {
+  console.log('ECPay payment result:', req.body);
+  
+  const config = getECPayConfig();
+  if (!config) {
+    return res.status(500).send('0|ECPay not configured');
+  }
+  
+  try {
+    const { CheckMacValue, ...params } = req.body;
+    
+    // Verify CheckMacValue
+    const calculatedMac = generateECPayCheckMac(params, config.hash_key, config.hash_iv);
+    if (calculatedMac !== CheckMacValue) {
+      console.error('ECPay CheckMacValue verification failed');
+      return res.status(400).send('0|CheckMacValue verification failed');
+    }
+    
+    const { MerchantTradeNo, RtnCode, PaymentType, BankCode, vAccount, ExpireDate, PaymentNo } = params;
+    
+    // Find orders by merchant trade number
+    const orders = await pool.query(
+      'SELECT * FROM orders WHERE paypal_order_id=$1',
+      [MerchantTradeNo]
+    );
+    
+    if (orders.rows.length === 0) {
+      console.error('ECPay order not found:', MerchantTradeNo);
+      return res.status(404).send('0|Order not found');
+    }
+    
+    // Store payment info
+    const paymentInfo = {
+      bank_code: BankCode,
+      v_account: vAccount,
+      expire_date: ExpireDate,
+      payment_no: PaymentNo,
+      payment_type: PaymentType
+    };
+    
+    // Update orders with payment info (store in proof_path as JSON for now)
+    await pool.query(
+      'UPDATE orders SET proof_path=$1 WHERE paypal_order_id=$2',
+      [JSON.stringify(paymentInfo), MerchantTradeNo]
+    );
+    
+    // If payment succeeded (RtnCode = 1 for ATM/CVS when payment is completed)
+    if (RtnCode === '1' || RtnCode === 1) {
+      // Auto-approve orders and execute RCON
+      for (const order of orders.rows) {
+        await pool.query(
+          'UPDATE orders SET status=$1, approved_at=now() WHERE id=$2',
+          ['approved', order.id]
+        );
+        
+        // Execute RCON command
+        const product = (await pool.query('SELECT command FROM products WHERE id=$1', [order.product_id])).rows[0];
+        if (product && product.command) {
+          const cmd = product.command.replace(/\{playerid\}/g, order.playerid);
+          try {
+            const resp = await runRconCommand(cmd);
+            await pool.query('UPDATE orders SET rcon_result=$1 WHERE id=$2', [resp ? String(resp) : null, order.id]);
+          } catch (e) {
+            console.error('RCON execution error for order', order.id, e);
+          }
+        }
+      }
+    }
+    
+    res.send('1|OK');
+  } catch (e) {
+    console.error('ECPay callback error:', e);
+    res.status(500).send('0|Server error');
+  }
+});
+
+// ECPay payment info callback (for ATM/CVS code generation)
+app.post('/ecpay/payment-info', express.urlencoded({ extended: true }), async (req, res) => {
+  console.log('ECPay payment info:', req.body);
+  
+  const config = getECPayConfig();
+  if (!config) {
+    return res.status(500).send('0|ECPay not configured');
+  }
+  
+  try {
+    const { CheckMacValue, ...params } = req.body;
+    
+    // Verify CheckMacValue
+    const calculatedMac = generateECPayCheckMac(params, config.hash_key, config.hash_iv);
+    if (calculatedMac !== CheckMacValue) {
+      console.error('ECPay CheckMacValue verification failed');
+      return res.status(400).send('0|CheckMacValue verification failed');
+    }
+    
+    const { MerchantTradeNo, PaymentType, BankCode, vAccount, ExpireDate, PaymentNo } = params;
+    
+    // Store payment info in database
+    const paymentInfo = {
+      bank_code: BankCode,
+      v_account: vAccount,
+      expire_date: ExpireDate,
+      payment_no: PaymentNo,
+      payment_type: PaymentType
+    };
+    
+    await pool.query(
+      'UPDATE orders SET proof_path=$1 WHERE paypal_order_id=$2',
+      [JSON.stringify(paymentInfo), MerchantTradeNo]
+    );
+    
+    console.log(`ECPay payment info stored for ${MerchantTradeNo}:`, paymentInfo);
+    
+    res.send('1|OK');
+  } catch (e) {
+    console.error('ECPay payment info callback error:', e);
+    res.status(500).send('0|Server error');
   }
 });
 

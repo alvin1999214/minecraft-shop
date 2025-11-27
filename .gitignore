@@ -18,11 +18,10 @@ build/
 api/uploads/*
 !api/uploads/.gitkeep
 
-# PayPal configuration (contains sensitive keys)
+# Payment gateway configurations (contains sensitive keys)
 api/paypal-config.json
-
-# Stripe configuration (contains sensitive keys)
 api/stripe-config.json
+api/ecpay-config.json
 
 # Currency configuration
 api/currency-config.json
@@ -59,6 +58,7 @@ checkout_response.txt
 
 # Test files
 test-*.html
+test-*.js
 *.test.js
 *.spec.js
 

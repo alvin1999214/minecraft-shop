@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getCart, checkout, uploadPaymentProof, getPayPalConfig, createPayPalOrder, capturePayPalOrder, getStripeConfig, createStripePaymentIntent, confirmStripePayment } from '../services/api';
+import { getCart, checkout, uploadPaymentProof, getPayPalConfig, createPayPalOrder, capturePayPalOrder, getStripeConfig, createStripePaymentIntent, confirmStripePayment, getECPayConfig, createECPayPayment } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
@@ -77,11 +77,12 @@ export default function CheckoutPage(){
   const [form,setForm]=useState({playerId:'',discordId:''});
   const [proof, setProof] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('manual'); // 'manual', 'paypal', or 'stripe'
+  const [paymentMethod, setPaymentMethod] = useState('manual'); // 'manual', 'paypal', 'stripe', 'ecpay_atm', 'ecpay_cvs'
   const [paypalClientId, setPaypalClientId] = useState(null);
   const [paypalLoaded, setPaypalLoaded] = useState(false);
   const [stripePromise, setStripePromise] = useState(null);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
+  const [ecpayEnabled, setEcpayEnabled] = useState(false);
   const discordIdRef = useRef('');
   const navigate=useNavigate();
   const { currency, formatPrice } = useCurrency();
@@ -124,6 +125,16 @@ export default function CheckoutPage(){
         }
       } catch (e) {
         console.log('Stripe not configured');
+      }
+      
+      // Load ECPay config
+      try {
+        const config = await getECPayConfig();
+        if (config.data && config.data.enabled) {
+          setEcpayEnabled(true);
+        }
+      } catch (e) {
+        console.log('ECPay not configured');
       }
     }catch(e){
       console.error(e);
@@ -203,6 +214,52 @@ export default function CheckoutPage(){
 
   const handleStripeError = (errorMessage) => {
     alert('Stripe付款失敗: ' + errorMessage);
+  };
+  
+  const handleECPaySubmit = async (paymentType) => {
+    if (currency !== 'TWD') {
+      alert('ECPay 僅支援新台幣（TWD）付款，請切換貨幣後再試');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      console.log('Creating ECPay payment:', paymentType, form.discordId, currency);
+      const response = await createECPayPayment(paymentType, form.discordId, currency);
+      console.log('ECPay response:', response.data);
+      
+      const { formData, actionUrl } = response.data;
+      
+      // Create a hidden form and submit it
+      const formElement = document.createElement('form');
+      formElement.method = 'POST';
+      formElement.action = actionUrl;
+      formElement.style.display = 'none';
+      
+      // Add all form fields
+      Object.entries(formData).forEach(([key, value]) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = key;
+        input.value = value;
+        formElement.appendChild(input);
+      });
+      
+      // Append to body, submit, then remove
+      document.body.appendChild(formElement);
+      
+      // Use setTimeout to ensure DOM is updated
+      setTimeout(() => {
+        formElement.submit();
+      }, 100);
+      
+    } catch (error) {
+      console.error('ECPay payment error:', error);
+      console.error('Error response:', error.response);
+      const errorMsg = error.response?.data?.error || error.response?.data?.details || error.message || 'ECPay付款創建失敗';
+      alert(`ECPay付款創建失敗: ${errorMsg}`);
+      setIsSubmitting(false);
+    }
   };
 
   useEffect(() => {
@@ -348,7 +405,63 @@ export default function CheckoutPage(){
                   <h4 style={{margin:0,fontSize:18,fontWeight:700}}>Stripe付款（24小時）</h4>
                 </div>
                 <p style={{margin:'0 0 0 32px',fontSize:14,color:'#6b7280',lineHeight:1.6}}>
-                  使用Stripe付款，24小時自動發貨，支援信用卡、Apple Pay、Google Pay付款；香港地區支援微信支付、支付寶
+                  使用Stripe付款，24小時訂單自動發貨，支援信用卡、Apple Pay、Google Pay付款、香港地區支援微信支付、支付寶
+                </p>
+              </div>
+            )}
+            
+            {/* ECPay ATM */}
+            {ecpayEnabled && currency === 'TWD' && (
+              <div 
+                onClick={()=>setPaymentMethod('ecpay_atm')}
+                style={{
+                  padding:20,
+                  border: paymentMethod === 'ecpay_atm' ? '2px solid #667eea' : '2px solid #e5e7eb',
+                  borderRadius:12,
+                  cursor:'pointer',
+                  transition:'all 0.2s',
+                  background: paymentMethod === 'ecpay_atm' ? '#f0f4ff' : 'white'
+                }}
+              >
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+                  <input 
+                    type="radio" 
+                    checked={paymentMethod === 'ecpay_atm'} 
+                    onChange={()=>setPaymentMethod('ecpay_atm')}
+                    style={{width:20,height:20}}
+                  />
+                  <h4 style={{margin:0,fontSize:18,fontWeight:700}}>ATM虛擬帳號（24小時）</h4>
+                </div>
+                <p style={{margin:'0 0 0 32px',fontSize:14,color:'#6b7280',lineHeight:1.6}}>
+                  取得ATM虛擬帳號後轉帳付款，付款成功後24小時訂單自動發貨（僅支援新台幣TWD）
+                </p>
+              </div>
+            )}
+            
+            {/* ECPay CVS */}
+            {ecpayEnabled && currency === 'TWD' && (
+              <div 
+                onClick={()=>setPaymentMethod('ecpay_cvs')}
+                style={{
+                  padding:20,
+                  border: paymentMethod === 'ecpay_cvs' ? '2px solid #667eea' : '2px solid #e5e7eb',
+                  borderRadius:12,
+                  cursor:'pointer',
+                  transition:'all 0.2s',
+                  background: paymentMethod === 'ecpay_cvs' ? '#f0f4ff' : 'white'
+                }}
+              >
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:8}}>
+                  <input 
+                    type="radio" 
+                    checked={paymentMethod === 'ecpay_cvs'} 
+                    onChange={()=>setPaymentMethod('ecpay_cvs')}
+                    style={{width:20,height:20}}
+                  />
+                  <h4 style={{margin:0,fontSize:18,fontWeight:700}}>超商代碼繳費（24小時）</h4>
+                </div>
+                <p style={{margin:'0 0 0 32px',fontSize:14,color:'#6b7280',lineHeight:1.6}}>
+                  取得超商繳費代碼，至7-11/全家/萊爾富繳費，付款成功後24小時訂單自動發貨（僅支援新台幣TWD）
                 </p>
               </div>
             )}
@@ -497,6 +610,25 @@ export default function CheckoutPage(){
                 <p style={{marginTop:16,color:'var(--text-secondary)'}}>載入Stripe...</p>
               </div>
             )}
+          </div>
+        ) : (paymentMethod === 'ecpay_atm' || paymentMethod === 'ecpay_cvs') ? (
+          <div>
+            <h3 style={{marginBottom:24}}>
+              {paymentMethod === 'ecpay_atm' ? 'ATM虛擬帳號付款' : '超商代碼繳費'}
+            </h3>
+            <p style={{marginBottom:24,color:'var(--text-secondary)'}}>
+              {paymentMethod === 'ecpay_atm' 
+                ? '點擊下方按鈕將取得ATM虛擬帳號，請於3天內完成轉帳' 
+                : '點擊下方按鈕將取得超商繳費代碼，可至7-11/全家/萊爾富繳費，請於7天內完成繳費'}
+            </p>
+            <button
+              className="btn large"
+              style={{width:'100%'}}
+              onClick={() => handleECPaySubmit(paymentMethod === 'ecpay_atm' ? 'ATM' : 'CVS')}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? '處理中...' : paymentMethod === 'ecpay_atm' ? '取得ATM虛擬帳號' : '取得超商繳費代碼'}
+            </button>
           </div>
         ) : null}
       </div>

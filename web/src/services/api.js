@@ -56,4 +56,8 @@ export const getStripeConfig = ()=>apiClient.get('/stripe/config');
 export const createStripePaymentIntent = (currency)=>apiClient.post('/stripe/create-payment-intent', { currency });
 export const confirmStripePayment = (paymentIntentId, discordId)=>apiClient.post('/stripe/confirm-payment', {paymentIntentId, discordId});
 
+// ECPay API
+export const getECPayConfig = ()=>apiClient.get('/ecpay/config');
+export const createECPayPayment = (paymentType, discordId, currency)=>apiClient.post('/ecpay/create-payment', { paymentType, discordId, currency });
+
 export default apiClient;

@@ -1,0 +1,9 @@
+{
+  "merchant_id": "2000132",
+  "hash_key": "5294y06JbISpM5x9",
+  "hash_iv": "v77hoKGq4kWxNNIS",
+  "test_mode": true,
+  "return_url": "http://localhost:8880/orders",
+  "payment_info_url": "http://localhost:18081/api/ecpay/payment-info",
+  "order_result_url": "http://localhost:18081/api/ecpay/order-result"
+}
