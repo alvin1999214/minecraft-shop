@@ -1,0 +1,35 @@
+﻿{
+    "value":  [
+                  {
+                      "id":  14,
+                      "name":  "POC Diamond Sword (Sharpness X)",
+                      "price":  "0",
+                      "command":  "/give {playerid} diamond_sword{Enchantments:[{id:\"minecraft:sharpness\",lvl:10}]} 1",
+                      "image":  "/uploads/poc_diamond_sword.png",
+                      "active":  true,
+                      "stock":  999,
+                      "description":  "Sharpness X diamond sword for POC"
+                  },
+                  {
+                      "id":  15,
+                      "name":  "POC Diamond (x10)",
+                      "price":  "0",
+                      "command":  "/give {playerid} diamond 10",
+                      "image":  "/uploads/poc_diamond.png",
+                      "active":  true,
+                      "stock":  999,
+                      "description":  "Bundle of diamonds for POC"
+                  },
+                  {
+                      "id":  16,
+                      "name":  "POC Dirt (x64)",
+                      "price":  "0",
+                      "command":  "/give {playerid} dirt 64",
+                      "image":  "/uploads/poc_dirt.png",
+                      "active":  true,
+                      "stock":  999,
+                      "description":  "Dirt for testing"
+                  }
+              ],
+    "Count":  3
+}

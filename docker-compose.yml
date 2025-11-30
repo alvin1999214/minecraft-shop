@@ -24,10 +24,14 @@ services:
       RCON_HOST: mc-spigot
       RCON_PORT: 25575
       RCON_PASSWORD: your_rcon_password_here  # 請修改為您的 RCON 密碼
+      # POC mode (optional): set to 'true' to enable POC auto-reset behavior
+      POC_MODE: 'true'
+      POC_CONFIG_PATH: /usr/src/app/poc-config.json
     depends_on:
       - db
     volumes:
       - ./api/uploads:/usr/src/app/uploads
+      - ./poc_res:/usr/src/app/poc_res:ro
     ports:
       - "18081:18081"
 

@@ -1,0 +1,45 @@
+{
+  "enabled": true,
+  "images_dir": "../poc_res",
+  "copy_images_to_uploads": true,
+  "clear_uploads_before_copy": true,
+  "default_users": [
+    { "playerid": "poc_user", "password": "pocpass" }
+  ],
+  "default_products": [
+    {
+      "name": "鋒利度 X 鑽石劍",
+      "price": 100,
+      "command": "/give {playerid} diamond_sword{Enchantments:[{id:\"minecraft:sharpness\",lvl:10}]} 1",
+      "image": "/uploads/poc_diamond_sword.png",
+      "active": true,
+      "stock": 999,
+      "description": "Sharpness X diamond sword for POC"
+    },
+    {
+      "name": "鑽石 (x10)",
+      "price": 50,
+      "command": "/give {playerid} diamond 10",
+      "image": "/uploads/poc_diamond.png",
+      "active": true,
+      "stock": 999,
+      "description": "Bundle of diamonds for POC"
+    },
+    {
+      "name": "泥土 (x64)",
+      "price": 30,
+      "command": "/give {playerid} dirt 64",
+      "image": "/uploads/poc_dirt.png",
+      "active": true,
+      "stock": 999,
+      "description": "Dirt for testing"
+    }
+  ],
+  "example_orders": [
+    { "playerid": "poc_user", "payment_method": "paypal", "status": "approved" },
+    { "playerid": "poc_user", "payment_method": "stripe", "status": "approved" },
+    { "playerid": "poc_user", "payment_method": "ecpay_atm", "status": "pending" },
+    { "playerid": "poc_user", "payment_method": "ecpay_cvs", "status": "pending" },
+    { "playerid": "poc_user", "payment_method": "manual", "status": "rejected" }
+  ]
+}

@@ -27,6 +27,16 @@ const upload = multer({
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Fallback: if an uploads file is requested but missing, serve from container's poc_res
+app.get('/uploads/:file', (req, res) => {
+  const file = req.params.file;
+  const uploadsPath = path.join(__dirname, 'uploads', file);
+  if (fs.existsSync(uploadsPath)) return res.sendFile(uploadsPath);
+  const altPath = path.join(__dirname, 'poc_res', file);
+  if (fs.existsSync(altPath)) return res.sendFile(altPath);
+  res.status(404).end();
+});
+
 // Currency configuration
 function getCurrencyConfig() {
   try {
@@ -1515,6 +1525,127 @@ async function waitForDb(retries = 10, delayMs = 3000) {
     await waitForDb(15, 2000);
     const sql = fs.readFileSync(path.join(__dirname, 'init.sql')).toString();
     await pool.query(sql);
+
+    // POC mode configuration
+    const pocConfigPath = process.env.POC_CONFIG_PATH || path.join(__dirname, 'poc-config.json');
+    const pocMode = (process.env.POC_MODE || '').toString().toLowerCase() === 'true';
+
+    let pocConfig = null;
+    if (fs.existsSync(pocConfigPath)) {
+      try { pocConfig = JSON.parse(fs.readFileSync(pocConfigPath, 'utf8')); } catch (e) { console.error('Failed to parse poc-config.json', e); pocConfig = null; }
+    }
+
+    async function copyPocImages() {
+      if (!pocConfig) return;
+      try {
+        const srcDir = path.join(__dirname, 'poc_res');
+        const uploadsDir = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(srcDir)) return;
+        if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+        if (pocConfig.clear_uploads_before_copy) {
+          const files = fs.readdirSync(uploadsDir).filter(f => f !== '.' && f !== '..');
+          for (const f of files) {
+            try { fs.unlinkSync(path.join(uploadsDir, f)); } catch (e) {}
+          }
+        }
+
+        for (const fn of fs.readdirSync(srcDir)) {
+          const ext = path.extname(fn).toLowerCase();
+          if (['.png', '.jpg', '.jpeg', '.gif'].includes(ext)) {
+            const src = path.join(srcDir, fn);
+            const dest = path.join(uploadsDir, fn);
+            try { fs.copyFileSync(src, dest); } catch (e) { console.error('copy image error', e); }
+          }
+        }
+      } catch (e) {
+        console.error('Error copying poc images:', e);
+      }
+    }
+
+    async function resetDbToPoc() {
+      if (!pocConfig) {
+        console.log('POC config not found; skipping reset');
+        return;
+      }
+
+      console.log('Resetting DB to POC state...');
+      try {
+        if (pocConfig.copy_images_to_uploads) await copyPocImages();
+
+        await pool.query('BEGIN');
+
+        await pool.query('DELETE FROM orders');
+        await pool.query('DELETE FROM cart_items');
+        await pool.query('DELETE FROM products');
+        await pool.query('DELETE FROM users');
+
+        const userIdMap = {};
+        const users = pocConfig.default_users || [];
+        for (const u of users) {
+          if (!u || !u.playerid) continue;
+          const pwd = u.password || 'pocpass';
+          const hashed = await bcrypt.hash(pwd, 10);
+          const r = await pool.query('INSERT INTO users(playerid, password_hash, created_at) VALUES($1,$2,now()) RETURNING id', [u.playerid, hashed]);
+          userIdMap[u.playerid] = r.rows[0].id;
+        }
+
+        const productIdList = [];
+        const products = pocConfig.default_products || [];
+        for (const p of products) {
+          const imagePath = p.image && p.image.startsWith('/uploads/') ? p.image : (p.image ? `/uploads/${path.basename(p.image)}` : null);
+          const r = await pool.query('INSERT INTO products(name, price, command, image, active, stock, description) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id', [p.name, p.price||0, p.command||'', imagePath, p.active===undefined?true:p.active, p.stock||0, p.description||'']);
+          productIdList.push(r.rows[0].id);
+        }
+
+        const examples = pocConfig.example_orders || [];
+        for (let i = 0; i < examples.length; i++) {
+          const ex = examples[i];
+          const playerid = ex.playerid || (users[0] && users[0].playerid) || 'poc_user';
+          const user_id = userIdMap[playerid] || null;
+          const product_id = productIdList.length ? productIdList[i % productIdList.length] : null;
+          const status = ex.status || 'pending';
+          const payment_method = ex.payment_method || 'manual';
+          const paypal_order_id = ex.paypal_order_id || null;
+          const order_group_id = `POC${Date.now()}${i}`;
+          const approved_at = status === 'approved' ? new Date() : null;
+          await pool.query('INSERT INTO orders(order_group_id, user_id, playerid, discord_id, product_id, proof_path, status, payment_method, paypal_order_id, created_at, approved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10)', [order_group_id, user_id, playerid, ex.discord_id || 'poc_discord', product_id, null, status, payment_method, paypal_order_id, approved_at]);
+        }
+
+        await pool.query('COMMIT');
+        console.log('POC DB reset completed');
+      } catch (e) {
+        try { await pool.query('ROLLBACK'); } catch (er) { console.error('Rollback failed', er); }
+        console.error('Failed to reset DB to POC state:', e && e.stack ? e.stack : e);
+      }
+    }
+
+    // admin endpoint to manually trigger reset
+    app.post('/admin/resetdb', adminAuth, async (req, res) => {
+      try {
+        await resetDbToPoc();
+        return res.json({ success: true });
+      } catch (e) {
+        console.error('Manual reset failed:', e);
+        return res.status(500).json({ error: 'reset failed' });
+      }
+    });
+
+    if (pocMode && pocConfig && pocConfig.enabled) {
+      console.log('POC mode enabled');
+      await resetDbToPoc();
+      // schedule check every minute, reset when minute === 0
+      setInterval(async () => {
+        try {
+          const now = new Date();
+          if (now.getMinutes() === 0) {
+            console.log('Hourly POC reset triggered');
+            await resetDbToPoc();
+          }
+        } catch (e) { console.error('Scheduled POC reset failed', e); }
+      }, 60 * 1000);
+    }
+
     app.listen(PORT, () => console.log('API running on', PORT));
   } catch (e) {
     console.error('Failed to initialize app:', e);
